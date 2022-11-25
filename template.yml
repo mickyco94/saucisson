@@ -1,0 +1,9 @@
+services:
+  - name: do_thing
+    condition:
+      cron:
+        schedule: "* * * * * *"
+    execute:
+      shell:
+        command: |
+          "echo hello world"
