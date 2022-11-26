@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
+	"time"
 
 	"github.com/mickyco94/saucisson/condition"
 	"github.com/mickyco94/saucisson/executor"
@@ -30,20 +32,10 @@ import (
 // Service -> Executor
 // Service -> Condition
 // Hierarchy too, executors and conditions should have knowledge of their defining services so they know
-// what executor to create/reference
+// what executor to create/reference.
 
 type BaseConfig struct {
 	Services []*Service
-}
-
-func (b *BaseConfig) Start() error {
-	for _, v := range b.Services {
-		err := v.startService()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 //Basic structure
@@ -54,46 +46,36 @@ func (b *BaseConfig) Start() error {
 // - cmd (need to figure out the daemon + cli aspect)
 //
 
+// !This can be our domain level understandable thing..
 type Service struct {
-	Name string
-
-	ctx       context.Context
-	wg        *sync.WaitGroup
-	condition condition.Condition
-	executor  executor.Executor
+	Name      string
+	Condition condition.Condition
+	Executor  executor.Executor
 }
 
 func NewService(
 	name string,
-	ctx context.Context,
-	wg *sync.WaitGroup,
 	condition condition.Condition,
 	executor executor.Executor) *Service {
 
 	return &Service{
-		ctx:       ctx,
-		wg:        wg,
 		Name:      name,
-		condition: condition,
-		executor:  executor,
+		Condition: condition,
+		Executor:  executor,
 	}
 }
 
-//Move to raw, look at benthos
-// type ConditionGeneric struct {
-// 	v map[string]string
-// }
-
-// This is gross, should be &App{}
 type App struct {
-	cron    *cron.Cron
-	context context.Context
+	context      context.Context
+	cron         *cron.Cron
+	fileListener *condition.FileListener //Move FileListener into its own package, like cron. Or move them all into their own packages
 }
 
 func New(ctx context.Context) *App {
 	return &App{
-		context: ctx,
-		cron:    cron.New(cron.WithSeconds()),
+		context:      ctx,
+		cron:         cron.New(cron.WithSeconds()),
+		fileListener: condition.NewFileListener(ctx),
 	}
 }
 
@@ -115,6 +97,19 @@ func (d *App) conditionFactory(cond Raw) (condition.Condition, error) {
 		}
 
 		impl := condition.NewCronCondition(sc, d.cron)
+
+		return impl, nil
+	} else if componentName == "file" {
+		sectionConfig, err := cond.ExtractSection("file")
+		if err != nil {
+			return nil, err
+		}
+		path, err := sectionConfig.ExtractString("path")
+		if err != nil {
+			return nil, err
+		}
+
+		impl := condition.NewFile(path, d.fileListener)
 
 		return impl, nil
 	}
@@ -147,13 +142,18 @@ func executorFactory(xc Raw) (executor.Executor, error) {
 	return nil, errors.New("Unsupported component")
 }
 
+type Job struct {
+	serviceName string
+	executor    executor.Executor
+}
+
 func (a *App) Run() error {
 	rawCfg, err := parseConfig("./template.yml")
 
 	if err != nil {
 		return err
 	}
-	// Basic application setup
+
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -178,31 +178,84 @@ func (a *App) Run() error {
 		}
 
 		serviceConfig := &Service{
-			ctx:       ctx,
-			wg:        wg,
 			Name:      v.Name,
-			condition: condImpl,
-			executor:  xcImpl,
+			Condition: condImpl,
+			Executor:  xcImpl,
 		}
 		runtimeConfig.Services[i] = serviceConfig
 	}
 
-	a.cron.Start()
-	err = runtimeConfig.Start()
+	jobs := make(chan *Job)
 
-	if err != nil {
-		return err
+	for _, s := range runtimeConfig.Services {
+		//Need to caputre s ref
+		func(s *Service) {
+			log.Printf("Registering: %v\n", s.Name)
+			err := s.Condition.Register(func() {
+				jobs <- &Job{
+					serviceName: s.Name,
+					executor:    s.Executor,
+				}
+			})
+
+			if err != nil {
+				log.Printf("Error registering: %v\n", err)
+			}
+		}(s)
 	}
 
-	//Basic application setup tidy up
-	wg.Wait()
+	worker := func(jobs chan *Job) {
+		defer wg.Done()
+		for j := range jobs {
+			j.executor.Execute()
+		}
+	}
+
+	go func() {
+		for {
+			log.Printf("GR: %v\n", runtime.NumGoroutine())
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	workerCount := len(runtimeConfig.Services)
+	//Max 20 GRs
+	//Allow override with env variable
+	if workerCount > 20 {
+		workerCount = 20
+	}
+
+	wg.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go worker(jobs)
+	}
+
+	//Start all the services
+	a.cron.Start()
+	a.fileListener.Run()
+
+	// if err != nil {
+	// 	return err
+	// }
+	<-ctx.Done()
+
+	//Stop producing...
 	crnContext := a.cron.Stop()
 	<-crnContext.Done()
+	close(jobs)
+
+	//Wait for all consumers to exit
+	//Basic application setup tidy up
+	wg.Wait()
+
 	return nil
 }
 
 func main() {
-	New(context.Background()).Run()
+	err := New(context.Background()).Run()
+	if err != nil {
+		log.Panicf("err: %v", err)
+	}
 }
 
 func (s *Service) Logf(format string, v ...any) {
@@ -212,46 +265,6 @@ func (s *Service) Logf(format string, v ...any) {
 	}
 
 	log.Printf("\033[31m %v\033[0m: "+format, args...)
-}
-
-func (s *Service) startService() error {
-	trigger := make(chan struct{})
-	s.wg.Add(1)
-
-	err := s.condition.Register(trigger)
-	if err != nil {
-		return err
-	}
-
-	//Right now, the number of goroutines scales with the YAML
-	//file that we are using
-	//We should apply some level of limiting...
-	//Producer/Consumer model
-
-	// The number of goroutines should be fixed and the scheduler should
-	// take advantage of what is available...
-	go func(s *Service) {
-		defer func() {
-			s.Logf("Exited")
-			s.wg.Done()
-		}()
-
-		for {
-
-			select {
-			case <-trigger:
-				err := s.executor.Execute()
-				if err != nil {
-					s.Logf("rut ro")
-				}
-			case <-s.ctx.Done():
-				s.Logf("Exiting...")
-				return
-			}
-
-		}
-	}(s)
-	return nil
 }
 
 type RawConfig struct {
@@ -266,7 +279,7 @@ type RawConfig struct {
 func (r Raw) Name() (string, error) {
 	i := 0
 	key := ""
-	for k, _ := range r {
+	for k := range r {
 		if i > 0 {
 			//TODO: Must be a better way than this lol
 			return "", errors.New("Multiple keys specified for component declaration")

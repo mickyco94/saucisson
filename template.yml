@@ -2,24 +2,17 @@ services:
   - name: do_thing
     condition:
       cron:
-        schedule: "* * * * * *"
+        schedule: "*/5 * * * * *"
     execute:
       shell:
         command: |
-          "echo 1st"
-  - name: try_something_else
+          "echo hello"
+  - name: listen_for_file_create
     condition:
-      cron:
-        schedule: "*/2 * * * * *"
+      file:
+        path: "/home/micky/dev/saucisson/tests/integration/file"
+        operation: "CREATE"
     execute:
       shell:
         command: |
-          "echo 2nd"
-  - name: a_third_thing
-    condition:
-      cron:
-        schedule: "*/3 * * * * *"
-    execute:
-      shell:
-        command: |
-          "echo 3rd"
+          "echo file created"

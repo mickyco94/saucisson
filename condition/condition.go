@@ -13,5 +13,5 @@ type Condition interface {
 	// Register takes a channel to notify satisfying the condition
 	// The channel is pushed to once the condition has been satisfied
 	// An error is returned if the registration of the condition fails
-	Register(chan<- struct{}) error
+	Register(func()) error
 }

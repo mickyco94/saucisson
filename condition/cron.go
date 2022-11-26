@@ -4,7 +4,9 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-func NewCronCondition(schedule string, cron *cron.Cron) *CronCondition {
+func NewCronCondition(
+	schedule string,
+	cron *cron.Cron) *CronCondition {
 	return &CronCondition{
 		opts: Opts{
 			schedule: schedule,
@@ -23,9 +25,7 @@ type CronCondition struct {
 	cron *cron.Cron
 }
 
-func (crn *CronCondition) Register(trigger chan<- struct{}) error {
-	_, err := crn.cron.AddFunc(crn.opts.schedule, func() {
-		trigger <- struct{}{}
-	})
+func (crn *CronCondition) Register(f func()) error {
+	_, err := crn.cron.AddFunc(crn.opts.schedule, f)
 	return err
 }
