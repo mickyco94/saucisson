@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -16,7 +15,7 @@ import (
 )
 
 type BaseConfig struct {
-	Services []*ServiceConfig
+	Services []*Service
 }
 
 func (b *BaseConfig) Start() error {
@@ -29,15 +28,6 @@ func (b *BaseConfig) Start() error {
 	return nil
 }
 
-//For every service config we want the execute to live
-//in its own struct, that struct listens to a channel
-//that the condition writes to
-//condition can also live within its own struct
-//has its own goroutine for that condition being satisfied
-
-//We then spin up N of these for each definition within BaseConfig
-//So the total number of goroutines is N * 2, where N is the no. of services
-
 //Basic structure
 // - parser (interprets the actual YAML)
 // - service (composition of conditions + executors)
@@ -46,24 +36,26 @@ func (b *BaseConfig) Start() error {
 // - cmd (need to figure out the daemon + cli aspect)
 //
 
-type ServiceConfig struct {
-	ctx context.Context
-	wg  *sync.WaitGroup
+type Service struct {
+	Name string
 
-	name      string
+	ctx       context.Context
+	wg        *sync.WaitGroup
 	condition condition.Condition
 	executor  executor.Executor
 }
 
-func NewServiceConfig(ctx context.Context,
-	wg *sync.WaitGroup,
+func NewService(
 	name string,
+	ctx context.Context,
+	wg *sync.WaitGroup,
 	condition condition.Condition,
-	executor executor.Executor) *ServiceConfig {
-	return &ServiceConfig{
+	executor executor.Executor) *Service {
+
+	return &Service{
 		ctx:       ctx,
 		wg:        wg,
-		name:      name,
+		Name:      name,
 		condition: condition,
 		executor:  executor,
 	}
@@ -151,13 +143,12 @@ func (a *App) Run() error {
 		sig := make(chan os.Signal)
 		signal.Notify(sig, os.Interrupt)
 		<-sig
-		fmt.Printf("Shutting down\n")
 		cancel()
 	}()
 
 	//Service pipeline setup
 	runtimeConfig := &BaseConfig{
-		Services: make([]*ServiceConfig, len(rawCfg.Services)),
+		Services: make([]*Service, len(rawCfg.Services)),
 	}
 
 	for i, v := range rawCfg.Services {
@@ -168,10 +159,10 @@ func (a *App) Run() error {
 			return err
 		}
 
-		serviceConfig := &ServiceConfig{
+		serviceConfig := &Service{
 			ctx:       ctx,
 			wg:        wg,
-			name:      v.Name,
+			Name:      v.Name,
 			condition: condImpl,
 			executor:  xcImpl,
 		}
@@ -187,11 +178,8 @@ func (a *App) Run() error {
 
 	//Basic application setup tidy up
 	wg.Wait()
-	log.Printf("Stopping cron service")
 	crnContext := a.cron.Stop()
 	<-crnContext.Done()
-	log.Printf("Cron stopped")
-
 	return nil
 }
 
@@ -199,7 +187,16 @@ func main() {
 	New(context.Background()).Run()
 }
 
-func (s *ServiceConfig) startService() error {
+func (s *Service) Logf(format string, v ...any) {
+	args := []any{s.Name}
+	if len(v) != 0 {
+		args = append(args, v)
+	}
+
+	log.Printf("\033[31m %v\033[0m: "+format, args...)
+}
+
+func (s *Service) startService() error {
 	trigger := make(chan struct{})
 	s.wg.Add(1)
 
@@ -208,10 +205,16 @@ func (s *ServiceConfig) startService() error {
 		return err
 	}
 
-	//TODO: Error handling for execute
-	go func(s *ServiceConfig) {
+	//Right now, the number of goroutines scales with the YAML
+	//file that we are using
+	//We should apply some level of limiting...
+	//Producer/Consumer model
+
+	// The number of goroutines should be fixed and the scheduler should
+	// take advantage of what is available...
+	go func(s *Service) {
 		defer func() {
-			log.Printf("Service ending: %v\n", s.name)
+			s.Logf("Exited")
 			s.wg.Done()
 		}()
 
@@ -221,9 +224,10 @@ func (s *ServiceConfig) startService() error {
 			case <-trigger:
 				err := s.executor.Execute()
 				if err != nil {
-					log.Fatalf("Error: %v\n", err)
+					s.Logf("rut ro")
 				}
 			case <-s.ctx.Done():
+				s.Logf("Exiting...")
 				return
 			}
 

@@ -6,4 +6,20 @@ services:
     execute:
       shell:
         command: |
-          "echo hello"
+          "echo 1st"
+  - name: try_something_else
+    condition:
+      cron:
+        schedule: "*/2 * * * * *"
+    execute:
+      shell:
+        command: |
+          "echo 2nd"
+  - name: a_third_thing
+    condition:
+      cron:
+        schedule: "*/3 * * * * *"
+    execute:
+      shell:
+        command: |
+          "echo 3rd"
