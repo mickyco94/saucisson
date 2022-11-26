@@ -6,4 +6,4 @@ services:
     execute:
       shell:
         command: |
-          "echo hello world"
+          "echo hello"

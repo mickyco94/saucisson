@@ -33,5 +33,7 @@ func (s *Shell) Execute() error {
 	}
 
 	log.Println("Output:\n", string(cmd))
+
 	return nil
+
 }
