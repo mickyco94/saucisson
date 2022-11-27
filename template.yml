@@ -1,27 +1,10 @@
 services:
-  - name: do_thing
-    condition:
-      cron:
-        schedule: "*/5 * * * * *"
-    execute:
-      shell:
-        command: |
-          "echo hello"
   - name: listen_for_file_create
     condition:
       file:
-        path: "/home/micky/dev/saucisson/tests/integration/file"
-        operation: "CREATE"
+        path: "/home/micky/dev/saucisson/TODO.md"
+        operation: "update"
     execute:
       shell:
         command: |
           "echo file created"
-  - name: listen_for_parent_folder
-    condition:
-      file:
-        path: "/home/micky/dev/saucisson/tests/integration"
-        operation: "CREATE"
-    execute:
-      shell:
-        command: |
-          "echo parent file created"

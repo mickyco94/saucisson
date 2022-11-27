@@ -3,18 +3,22 @@ package condition
 import (
 	"context"
 	"log"
-	"strings"
+	"time"
 
-	"github.com/fsnotify/fsnotify"
+	filewatcher "github.com/radovskyb/watcher"
 )
 
 //File is a condition that is triggered when a file
 //is created, or if a directory is specified
 //Then when a file is created in that directory
 
-func NewFile(path string, listener *FileListener) *File {
+func NewFile(
+	path string,
+	op filewatcher.Op,
+	listener *FileListener) *File {
 	return &File{
 		path:   path,
+		op:     op,
 		parent: listener,
 	}
 }
@@ -22,27 +26,49 @@ func NewFile(path string, listener *FileListener) *File {
 // TODO: Propagate the file path as a param and allow it to be used in executors dynamically
 type File struct {
 	path   string
+	op     filewatcher.Op
 	parent *FileListener
-	op     fsnotify.Op
+}
+
+func (file *File) getRealPath() (string, error) {
+
+	//File or directory exists, no problems
+	return file.path, nil
 }
 
 func (file *File) Register(f func()) error {
-	//TODO: Wrap
+
 	err := file.parent.watcher.Add(file.path)
 	if err != nil {
 		return err
 	}
 	//Path is not a very unique identifier, you could have multiple for one path
-	file.parent.entries[file.path] = f
+	file.parent.entries[file.path] = &fileEntry{
+		file: file.path,
+		dir:  file.path,
+		op:   file.op,
+		h:    f,
+	}
 	return nil
+}
+
+type fileEntry struct {
+	//The file we are watching for changes, nil if we are watching a dir
+	file string
+	//The directory we are watching
+	dir string
+	//The operation we are listening for
+	op filewatcher.Op //h is executed if a match is found
+	h  func()
 }
 
 type FileListener struct {
 	context context.Context
 	//Inner watcher
-	watcher *fsnotify.Watcher
+	watcher *filewatcher.Watcher
 
-	entries map[string]func() //Original paths that were watched and their corresponding functions
+	entries map[string]*fileEntry //Multiple could apply...? map[string][]func()
+	//Original paths that were watched and their corresponding functions
 	//This needs to be more complex to allow
 }
 
@@ -51,46 +77,35 @@ func (fl *FileListener) Stop() {
 }
 
 func NewFileListener(ctx context.Context) *FileListener {
-	watcher, err := fsnotify.NewWatcher() //!Ignore errors lol
-	if err != nil {
-		log.Printf("err: %v", err)
-	}
 	return &FileListener{
 		context: ctx,
-		watcher: watcher,
-		entries: make(map[string]func()),
+		watcher: filewatcher.New(),
+		entries: make(map[string]*fileEntry),
 	}
 }
 
 func (f *FileListener) Run() {
+
+	//TODO: error trap
+	go f.watcher.Start(100 * time.Millisecond)
+
 	go func() {
 		for {
 			select {
 			case <-f.context.Done():
-				//More elegant
 				return
-			case event, ok := <-f.watcher.Events:
+			case event, ok := <-f.watcher.Event:
 				if !ok {
 					return
 				}
-				if !event.Has(fsnotify.Create) {
-					continue
-				}
-				//! Inefficient, use a better datastructure:
-				// The matching here needs to be more restrictive
-				//There are special flags we can include, like "includeSubdirectories etc."
-				//Different behaviours for files vs. folders. If a user listens for a file being created
-				//That does not exist yet, we can just listen in that folder and then match for all the
-				//Create events. There is some sophistication and config options that we can add as an extra
-				//layer of this simply inotifyd wrapper
-				//Determine what ~ means, etc.
-				for k, v := range f.entries {
 
-					if strings.Contains(event.Name, k) {
-						v()
-					}
+				log.Printf("Event: %v\n", event)
+
+				entry := f.entries[event.Name()]
+				if entry != nil && event.Op == entry.op {
+					entry.h()
 				}
-			case err, ok := <-f.watcher.Errors:
+			case err, ok := <-f.watcher.Error:
 				if !ok {
 					return
 				}

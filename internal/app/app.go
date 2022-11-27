@@ -13,6 +13,7 @@ import (
 	"github.com/mickyco94/saucisson/internal/condition"
 	"github.com/mickyco94/saucisson/internal/executor"
 	"github.com/mickyco94/saucisson/internal/parser"
+	filewatcher "github.com/radovskyb/watcher"
 	"github.com/robfig/cron/v3"
 )
 
@@ -41,7 +42,29 @@ func FileListenerFactory(c parser.Raw, r Dependencies) (condition.Condition, err
 		return nil, err
 	}
 
-	return condition.NewFile(path, r.fileListener), nil
+	op, err := c.ExtractString("operation")
+
+	if err != nil {
+		return nil, err
+	}
+
+	var actual filewatcher.Op
+	switch op {
+	case "create":
+		actual = filewatcher.Create
+	case "rename":
+		actual = filewatcher.Rename
+	case "delete":
+		actual = filewatcher.Remove
+	case "chmod":
+		actual = filewatcher.Chmod
+	case "update":
+		actual = filewatcher.Write
+	default:
+		return nil, errors.New("Unsupported op")
+	}
+
+	return condition.NewFile(path, actual, r.fileListener), nil
 }
 
 func ShellExecutorFactory(c parser.Raw, r Dependencies) (executor.Executor, error) {
@@ -152,6 +175,7 @@ type Job struct {
 }
 
 func New(ctx context.Context) *App {
+
 	app := &App{
 		context:  ctx,
 		workerWg: &sync.WaitGroup{},
@@ -216,7 +240,7 @@ func (app *App) Run() error {
 		cancel()
 	}()
 
-	app.debugGoroutines()
+	// app.debugGoroutines()
 
 	//Service pipeline setup
 	runtimeConfig := &BaseConfig{
