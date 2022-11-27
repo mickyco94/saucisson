@@ -46,6 +46,10 @@ type FileListener struct {
 	//This needs to be more complex to allow
 }
 
+func (fl *FileListener) Stop() {
+	fl.watcher.Close()
+}
+
 func NewFileListener(ctx context.Context) *FileListener {
 	watcher, err := fsnotify.NewWatcher() //!Ignore errors lol
 	if err != nil {

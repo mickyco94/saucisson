@@ -16,15 +16,72 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+type ConditionFactoryFunc func(c parser.Raw, r Dependencies) (condition.Condition, error)
+type ExecutorFactoryFunc func(c parser.Raw, r Dependencies) (executor.Executor, error)
+
+// Registry holds all the factories
+type Registry struct {
+	conditions map[string]ConditionFactoryFunc
+	executors  map[string]ExecutorFactoryFunc
+}
+
+func CronFactory(c parser.Raw, r Dependencies) (condition.Condition, error) {
+	schedule, err := c.ExtractString("schedule")
+	if err != nil {
+		return nil, err
+	}
+
+	return condition.NewCronCondition(schedule, r.cron), nil
+}
+
+func FileListenerFactory(c parser.Raw, r Dependencies) (condition.Condition, error) {
+
+	path, err := c.ExtractString("path")
+	if err != nil {
+		return nil, err
+	}
+
+	return condition.NewFile(path, r.fileListener), nil
+}
+
+func ShellExecutorFactory(c parser.Raw, r Dependencies) (executor.Executor, error) {
+	command, err := c.ExtractString("command")
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &executor.Shell{
+		Command: command,
+	}, nil
+}
+
+func NewRegistry() *Registry {
+	return &Registry{
+		conditions: map[string]ConditionFactoryFunc{
+			"cron": CronFactory,
+			"file": FileListenerFactory,
+		},
+		executors: map[string]ExecutorFactoryFunc{
+			"shell": ShellExecutorFactory,
+		},
+	}
+}
+
 type BaseConfig struct {
 	Services []*Service
+}
+
+type Dependencies struct {
+	cron         *cron.Cron
+	fileListener *condition.FileListener
 }
 
 type App struct {
 	context      context.Context
 	workerWg     *sync.WaitGroup
-	cron         *cron.Cron
-	fileListener *condition.FileListener
+	Dependencies Dependencies
+	Registry     *Registry
 }
 
 type Service struct {
@@ -52,34 +109,15 @@ func (d *App) conditionFactory(cond parser.Raw) (condition.Condition, error) {
 		return nil, err
 	}
 
-	if componentName == "cron" {
-		sectionConfig, err := cond.ExtractSection("cron")
-		if err != nil {
-			return nil, err
-		}
-		sc, err := sectionConfig.ExtractString("schedule")
-		if err != nil {
-			return nil, err
-		}
+	constructor, exists := d.Registry.conditions[componentName]
 
-		impl := condition.NewCronCondition(sc, d.cron)
-
-		return impl, nil
-	} else if componentName == "file" {
-		sectionConfig, err := cond.ExtractSection("file")
-		if err != nil {
-			return nil, err
-		}
-		path, err := sectionConfig.ExtractString("path")
-		if err != nil {
-			return nil, err
-		}
-
-		impl := condition.NewFile(path, d.fileListener)
-
-		return impl, nil
+	if !exists {
+		return nil, errors.New("Component undefined")
 	}
-	return nil, errors.New("Unsupported component")
+
+	configSection, err := cond.ExtractSection(componentName)
+
+	return constructor(configSection, d.Dependencies)
 }
 
 func executorFactory(xc parser.Raw) (executor.Executor, error) {
@@ -117,9 +155,11 @@ func New(ctx context.Context) *App {
 	return &App{
 		context:  ctx,
 		workerWg: &sync.WaitGroup{},
-
-		cron:         cron.New(cron.WithSeconds()),
-		fileListener: condition.NewFileListener(ctx),
+		Registry: NewRegistry(),
+		Dependencies: Dependencies{
+			cron:         cron.New(cron.WithSeconds()),
+			fileListener: condition.NewFileListener(ctx),
+		},
 	}
 }
 
@@ -154,7 +194,7 @@ func (a *App) spawnWorkers(workerCount int, jobs chan *Job) {
 
 }
 
-func (a *App) Run() error {
+func (app *App) Run() error {
 	rawCfg, err := parser.Parse("./template.yml")
 
 	if err != nil {
@@ -170,7 +210,7 @@ func (a *App) Run() error {
 		cancel()
 	}()
 
-	// a.debugGoroutines()
+	app.debugGoroutines()
 
 	//Service pipeline setup
 	runtimeConfig := &BaseConfig{
@@ -179,7 +219,7 @@ func (a *App) Run() error {
 
 	for i, v := range rawCfg.Services {
 		xcImpl, err := executorFactory(v.Execute)
-		condImpl, err := a.conditionFactory(v.Condition)
+		condImpl, err := app.conditionFactory(v.Condition)
 
 		if err != nil {
 			return err
@@ -213,22 +253,31 @@ func (a *App) Run() error {
 	}
 
 	//Start all the consumers
-	a.spawnWorkers(len(runtimeConfig.Services), jobs)
+	app.spawnWorkers(len(runtimeConfig.Services), jobs)
 
 	//Start producers
-	a.cron.Start()
-	a.fileListener.Run()
+	app.Dependencies.Start()
 
 	//Listen for cancellation
+	//Should be a select on multiple things really
 	<-ctx.Done()
 
-	//Wait for producers to stop
-	crnContext := a.cron.Stop()
-	<-crnContext.Done()
+	app.Dependencies.Stop()
 	close(jobs)
 
 	//Wait for all consumers to exit
-	a.workerWg.Wait()
+	app.workerWg.Wait()
 
 	return nil
+}
+
+func (deps *Dependencies) Start() {
+	deps.cron.Start()
+	deps.fileListener.Run()
+}
+
+func (deps *Dependencies) Stop() {
+	deps.fileListener.Stop()
+	crnContext := deps.cron.Stop()
+	<-crnContext.Done()
 }
