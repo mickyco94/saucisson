@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/component"
-	"github.com/mickyco94/saucisson/internal/dependencies"
 	"github.com/mickyco94/saucisson/internal/parser"
-	"github.com/mickyco94/saucisson/internal/registry"
+	"github.com/mickyco94/saucisson/internal/service"
 	"github.com/robfig/cron/v3"
 )
 
@@ -21,10 +20,14 @@ type BaseConfig struct {
 }
 
 type App struct {
-	context      context.Context
-	workerWg     *sync.WaitGroup
-	Dependencies *dependencies.Dependencies
-	Registry     *registry.Registry
+	context  context.Context
+	workerWg *sync.WaitGroup
+	services *services
+}
+
+type services struct {
+	cron         *cron.Cron
+	filelistener *service.FileListener
 }
 
 type Service struct {
@@ -51,24 +54,14 @@ type Job struct {
 }
 
 func New(ctx context.Context) *App {
-
-	deps := &dependencies.Dependencies{
-		Cron:         cron.New(cron.WithSeconds()),
-		FileListener: dependencies.NewFileListener(ctx),
+	return &App{
+		context:  ctx,
+		workerWg: &sync.WaitGroup{},
+		services: &services{
+			cron:         cron.New(cron.WithSeconds()),
+			filelistener: service.NewFileListener(ctx),
+		},
 	}
-
-	app := &App{
-		context:      ctx,
-		workerWg:     &sync.WaitGroup{},
-		Registry:     registry.NewRegistry(deps),
-		Dependencies: deps,
-	}
-
-	app.Registry.RegisterCondition("cron", component.CronFactory)
-	app.Registry.RegisterCondition("file", component.FileListenerFactory)
-	app.Registry.RegisterExecutor("shell", component.ShellExecutorFactory)
-
-	return app
 }
 
 func (a *App) debugGoroutines() {
@@ -126,8 +119,21 @@ func (app *App) Run() error {
 	}
 
 	for i, v := range rawCfg.Services {
-		xcImpl, err := app.Registry.ExecutorFromConfig(v.Execute)
-		condImpl, err := app.Registry.ConditionFromConfig(v.Condition)
+		executorId, err := v.Execute.Name()
+		conditionId, err := v.Condition.Name()
+
+		if err != nil {
+			return err
+		}
+
+		executorCtor := ExecutorConstructors[executorId]
+		condCtor := ConditionConstructors[conditionId]
+
+		executorConfig, err := v.Execute.ExtractSection(executorId)
+		conditionConfig, err := v.Condition.ExtractSection(conditionId)
+
+		executor, err := executorCtor(app.services, executorConfig)
+		condition, err := condCtor(app.services, conditionConfig)
 
 		if err != nil {
 			return err
@@ -135,8 +141,8 @@ func (app *App) Run() error {
 
 		serviceConfig := &Service{
 			Name:      v.Name,
-			Condition: condImpl,
-			Executor:  xcImpl,
+			Condition: condition,
+			Executor:  executor,
 		}
 		runtimeConfig.Services[i] = serviceConfig
 	}
@@ -164,13 +170,13 @@ func (app *App) Run() error {
 	app.spawnWorkers(len(runtimeConfig.Services), jobs)
 
 	//Start producers
-	app.Dependencies.Start()
+	app.services.filelistener.Run()
+	app.services.cron.Start()
 
 	//Listen for cancellation
 	//Should be a select on multiple things really
 	<-ctx.Done()
 
-	app.Dependencies.Stop()
 	close(jobs)
 
 	//Wait for all consumers to exit

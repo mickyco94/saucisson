@@ -6,12 +6,17 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/mickyco94/saucisson/internal/dependencies"
 	"github.com/mickyco94/saucisson/internal/parser"
 )
 
+func NewShell(command string) *Shell {
+	return &Shell{
+		command: command,
+	}
+}
+
 type Shell struct {
-	Command string
+	command string
 }
 
 func (s *Shell) getShell() string {
@@ -23,7 +28,7 @@ func (s *Shell) getShell() string {
 }
 
 func (s *Shell) Execute() error {
-	runCmd := s.Command
+	runCmd := s.command
 
 	removeQuotes := strings.Replace(runCmd, "\"", "", -1)
 
@@ -41,7 +46,7 @@ func (s *Shell) Execute() error {
 
 }
 
-func ShellExecutorFactory(c parser.Raw, r *dependencies.Dependencies) (Executor, error) {
+func ParseConfig(c parser.Raw) (Executor, error) {
 	command, err := c.ExtractString("command")
 
 	if err != nil {
@@ -49,6 +54,6 @@ func ShellExecutorFactory(c parser.Raw, r *dependencies.Dependencies) (Executor,
 	}
 
 	return &Shell{
-		Command: command,
+		command: command,
 	}, nil
 }
