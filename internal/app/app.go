@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -10,99 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mickyco94/saucisson/internal/condition"
-	"github.com/mickyco94/saucisson/internal/executor"
+	"github.com/mickyco94/saucisson/internal/component"
+	"github.com/mickyco94/saucisson/internal/dependencies"
 	"github.com/mickyco94/saucisson/internal/parser"
-	filewatcher "github.com/radovskyb/watcher"
+	"github.com/mickyco94/saucisson/internal/registry"
 	"github.com/robfig/cron/v3"
 )
-
-type ConditionFactoryFunc func(c parser.Raw, r Dependencies) (condition.Condition, error)
-type ExecutorFactoryFunc func(c parser.Raw, r Dependencies) (executor.Executor, error)
-
-// Registry holds all the factories
-type Registry struct {
-	conditions map[string]ConditionFactoryFunc
-	executors  map[string]ExecutorFactoryFunc
-}
-
-func CronFactory(c parser.Raw, r Dependencies) (condition.Condition, error) {
-	schedule, err := c.ExtractString("schedule")
-	if err != nil {
-		return nil, err
-	}
-
-	return condition.NewCronCondition(schedule, r.cron), nil
-}
-
-func FileListenerFactory(c parser.Raw, r Dependencies) (condition.Condition, error) {
-
-	path, err := c.ExtractString("path")
-	if err != nil {
-		return nil, err
-	}
-
-	op, err := c.ExtractString("operation")
-
-	if err != nil {
-		return nil, err
-	}
-
-	var actual filewatcher.Op
-	switch op {
-	case "create":
-		actual = filewatcher.Create
-	case "rename":
-		actual = filewatcher.Rename
-	case "delete":
-		actual = filewatcher.Remove
-	case "chmod":
-		actual = filewatcher.Chmod
-	case "update":
-		actual = filewatcher.Write
-	default:
-		return nil, errors.New("Unsupported op")
-	}
-
-	return condition.NewFile(path, actual, r.fileListener), nil
-}
-
-func ShellExecutorFactory(c parser.Raw, r Dependencies) (executor.Executor, error) {
-	command, err := c.ExtractString("command")
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &executor.Shell{
-		Command: command,
-	}, nil
-}
-
-func (r *Registry) RegisterCondition(name string, f ConditionFactoryFunc) error {
-	_, exists := r.conditions[name]
-	if exists {
-		return errors.New("Existing condition already registered under that key")
-	}
-	r.conditions[name] = f
-	return nil
-}
-
-func (r *Registry) RegisterExecutor(name string, f ExecutorFactoryFunc) error {
-	_, exists := r.executors[name]
-	if exists {
-		return errors.New("Existing executor already registered under that key")
-	}
-	r.executors[name] = f
-	return nil
-}
-
-func NewRegistry() *Registry {
-	return &Registry{
-		conditions: make(map[string]ConditionFactoryFunc),
-		executors:  make(map[string]ExecutorFactoryFunc),
-	}
-}
 
 type BaseConfig struct {
 	Services []*Service
@@ -111,20 +23,20 @@ type BaseConfig struct {
 type App struct {
 	context      context.Context
 	workerWg     *sync.WaitGroup
-	Dependencies Dependencies
-	Registry     *Registry
+	Dependencies *dependencies.Dependencies
+	Registry     *registry.Registry
 }
 
 type Service struct {
 	Name      string
-	Condition condition.Condition
-	Executor  executor.Executor
+	Condition component.Condition
+	Executor  component.Executor
 }
 
 func NewService(
 	name string,
-	condition condition.Condition,
-	executor executor.Executor) *Service {
+	condition component.Condition,
+	executor component.Executor) *Service {
 
 	return &Service{
 		Name:      name,
@@ -133,62 +45,28 @@ func NewService(
 	}
 }
 
-func (app *App) conditionFactory(conf parser.Raw) (condition.Condition, error) {
-	componentName, err := conf.Name()
-
-	if err != nil {
-		return nil, err
-	}
-
-	constructor, exists := app.Registry.conditions[componentName]
-
-	if !exists {
-		return nil, errors.New("Component undefined")
-	}
-
-	configSection, err := conf.ExtractSection(componentName)
-
-	return constructor(configSection, app.Dependencies)
-}
-
-func (app *App) executorFactory(conf parser.Raw) (executor.Executor, error) {
-	componentName, err := conf.Name()
-
-	if err != nil {
-		return nil, err
-	}
-
-	constructor, exists := app.Registry.executors[componentName]
-
-	if !exists {
-		return nil, errors.New("Component undefined")
-	}
-
-	configSection, err := conf.ExtractSection(componentName)
-
-	return constructor(configSection, app.Dependencies)
-}
-
 type Job struct {
 	serviceName string
-	executor    executor.Executor
+	executor    component.Executor
 }
 
 func New(ctx context.Context) *App {
 
-	app := &App{
-		context:  ctx,
-		workerWg: &sync.WaitGroup{},
-		Registry: NewRegistry(),
-		Dependencies: Dependencies{
-			cron:         cron.New(cron.WithSeconds()),
-			fileListener: condition.NewFileListener(ctx),
-		},
+	deps := &dependencies.Dependencies{
+		Cron:         cron.New(cron.WithSeconds()),
+		FileListener: dependencies.NewFileListener(ctx),
 	}
 
-	app.Registry.RegisterCondition("cron", CronFactory)
-	app.Registry.RegisterCondition("file", FileListenerFactory)
-	app.Registry.RegisterExecutor("shell", ShellExecutorFactory)
+	app := &App{
+		context:      ctx,
+		workerWg:     &sync.WaitGroup{},
+		Registry:     registry.NewRegistry(deps),
+		Dependencies: deps,
+	}
+
+	app.Registry.RegisterCondition("cron", component.CronFactory)
+	app.Registry.RegisterCondition("file", component.FileListenerFactory)
+	app.Registry.RegisterExecutor("shell", component.ShellExecutorFactory)
 
 	return app
 }
@@ -248,8 +126,8 @@ func (app *App) Run() error {
 	}
 
 	for i, v := range rawCfg.Services {
-		xcImpl, err := app.executorFactory(v.Execute)
-		condImpl, err := app.conditionFactory(v.Condition)
+		xcImpl, err := app.Registry.ExecutorFromConfig(v.Execute)
+		condImpl, err := app.Registry.ConditionFromConfig(v.Condition)
 
 		if err != nil {
 			return err

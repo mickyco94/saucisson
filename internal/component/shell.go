@@ -1,10 +1,13 @@
-package executor
+package component
 
 import (
 	"log"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/mickyco94/saucisson/internal/dependencies"
+	"github.com/mickyco94/saucisson/internal/parser"
 )
 
 type Shell struct {
@@ -36,4 +39,16 @@ func (s *Shell) Execute() error {
 
 	return nil
 
+}
+
+func ShellExecutorFactory(c parser.Raw, r *dependencies.Dependencies) (Executor, error) {
+	command, err := c.ExtractString("command")
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &Shell{
+		Command: command,
+	}, nil
 }

@@ -1,4 +1,4 @@
-package condition
+package component
 
 // Condition is an abstraction that represents a
 // particular condition being satisified. When the condition
