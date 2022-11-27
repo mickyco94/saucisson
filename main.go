@@ -16,24 +16,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ! RE-DESIGN TIME
-// I suck at multi-threading, a short story.
-// So what I currently have is pretty inefficient, we're holding executors and
-// conditions in memory constantly and spawning threads for each services.
-// Thinking about this, a better design for multi-threading and memory constraints
-// We would be to have a limited number of goroutines that check for run conditions to
-// be satisfied. Then from a pool of available executor threads we spawn and attach an executor
-// This limits the number of threads that are running at any given time. We can try to make this
-// equal to the number of services that have been defined but attach an upper bound
-
-// The real question to me is how do we have a limited number of producer/condition check threads
-
-// Side note: Channel go-between for communication between condition and executor needs to go.
-// Service -> Executor
-// Service -> Condition
-// Hierarchy too, executors and conditions should have knowledge of their defining services so they know
-// what executor to create/reference.
-
 type BaseConfig struct {
 	Services []*Service
 }

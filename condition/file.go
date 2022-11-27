@@ -32,6 +32,7 @@ func (file *File) Register(f func()) error {
 	if err != nil {
 		return err
 	}
+	//Path is not a very unique identifier, you could have multiple for one path
 	file.parent.entries[file.path] = f
 	return nil
 }
@@ -58,7 +59,6 @@ func NewFileListener(ctx context.Context) *FileListener {
 }
 
 func (f *FileListener) Run() {
-	//Start a go-routine that listens
 	go func() {
 		for {
 			select {
@@ -73,6 +73,13 @@ func (f *FileListener) Run() {
 					continue
 				}
 				//! Inefficient, use a better datastructure:
+				// The matching here needs to be more restrictive
+				//There are special flags we can include, like "includeSubdirectories etc."
+				//Different behaviours for files vs. folders. If a user listens for a file being created
+				//That does not exist yet, we can just listen in that folder and then match for all the
+				//Create events. There is some sophistication and config options that we can add as an extra
+				//layer of this simply inotifyd wrapper
+				//Determine what ~ means, etc.
 				for k, v := range f.entries {
 
 					if strings.Contains(event.Name, k) {

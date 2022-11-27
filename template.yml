@@ -16,3 +16,12 @@ services:
       shell:
         command: |
           "echo file created"
+  - name: listen_for_parent_folder
+    condition:
+      file:
+        path: "/home/micky/dev/saucisson/tests/integration"
+        operation: "CREATE"
+    execute:
+      shell:
+        command: |
+          "echo parent file created"
