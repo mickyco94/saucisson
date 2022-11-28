@@ -1,6 +1,7 @@
 package component
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -8,25 +9,29 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (c *ShellConfig) FromConfig(logger logrus.FieldLogger) (*Shell, error) {
-	return NewShell(c.Command, logger), nil
+func (c *ShellConfig) FromConfig(ctx context.Context, logger logrus.FieldLogger) (*Shell, error) {
+	return NewShell(ctx, c.Command, logger), nil
 }
 
 func NewShell(
+	ctx context.Context,
 	command string,
 	logger logrus.FieldLogger) *Shell {
 	return &Shell{
+		ctx:     ctx,
 		logger:  logger,
 		command: command,
 	}
 }
 
 type Shell struct {
-	logger  logrus.FieldLogger
+	ctx    context.Context
+	logger logrus.FieldLogger
+
 	command string
 }
 
-func (s *Shell) getShell() string {
+func (shell *Shell) getShell() string {
 	val, exists := os.LookupEnv("SHELL")
 	if !exists {
 		return "bash" //? Make the aggressive assumption that they have bash
@@ -38,11 +43,12 @@ func escape(input string) string {
 	return strings.Replace(input, "\"", "", -1)
 }
 
-func (s *Shell) Execute() error {
+func (shell *Shell) Execute() error {
 
-	sh := s.getShell()
+	sh := shell.getShell()
 
-	cmd, err := exec.Command(sh, "-c", escape(s.command)).Output()
+	//We should wait until the command is done, with a maximum timeout
+	cmd, err := exec.CommandContext(shell.ctx, sh, "-c", escape(shell.command)).Output()
 
 	if err != nil {
 		return err
@@ -50,9 +56,9 @@ func (s *Shell) Execute() error {
 
 	stdout := string(cmd)
 
-	s.logger.
+	shell.logger.
 		WithField("stdout", escape(stdout)).
-		WithField("input", escape(s.command)).
+		WithField("input", escape(shell.command)).
 		Info("Completed")
 
 	return nil

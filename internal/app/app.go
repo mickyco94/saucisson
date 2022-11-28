@@ -56,19 +56,17 @@ func New(ctx context.Context) *App {
 		FullTimestamp: true,
 	}
 
-	logger := logrus.New().
-		WithField("app", "saucission").
-		WithField("gr_count", runtime.NumGoroutine())
+	logger := logrus.New().WithField("app", "saucission")
 
 	logger.Logger.SetFormatter(formatter)
-
 	logger.Logger.SetLevel(logrus.DebugLevel)
+
 	return &App{
 		context:      ctx,
 		logger:       logger,
 		workerWg:     &sync.WaitGroup{},
 		cron:         cron.New(cron.WithSeconds()),
-		filelistener: service.NewFileListener(ctx),
+		filelistener: service.NewFileListener(ctx, logger),
 	}
 }
 
@@ -83,10 +81,22 @@ func (a *App) debugGoroutines() {
 
 func (a *App) spawnWorkers(workerCount int, jobs chan *job) {
 
-	worker := func(jobss chan *job) {
-		defer a.workerWg.Done()
+	worker := func(jobss chan *job, id int) {
+		defer func() {
+			a.logger.Debug("Stopping worker")
+			a.workerWg.Done()
+		}()
+
 		for j := range jobss {
-			j.executor.Execute()
+
+			err := j.executor.Execute()
+
+			if err != nil {
+				a.logger.
+					WithField("svc", j.serviceName).
+					WithField("err", err).
+					Error("Error executing")
+			}
 		}
 	}
 
@@ -98,13 +108,20 @@ func (a *App) spawnWorkers(workerCount int, jobs chan *job) {
 
 	a.workerWg.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
-		go worker(jobs)
+		go worker(jobs, i)
 	}
 
 }
 
 func (app *App) Run() error {
-	rawCfg, err := parser.Parse("./template.yml")
+	file, err := os.Open("./template.yml")
+	if err != nil {
+		return err
+	}
+
+	config := &parser.RawConfig{}
+
+	err = config.Parse(file)
 
 	if err != nil {
 		return err
@@ -123,10 +140,10 @@ func (app *App) Run() error {
 
 	//Service pipeline setup
 	runtimeConfig := &BaseConfig{
-		Services: make([]*svc, len(rawCfg.Services)),
+		Services: make([]*svc, len(config.Services)),
 	}
 
-	for i, v := range rawCfg.Services {
+	for i, v := range config.Services {
 		var condition component.Condition
 		var executor component.Executor
 
@@ -145,7 +162,7 @@ func (app *App) Run() error {
 		}
 
 		if v.Execute.Shell != nil {
-			executor, err = v.Execute.Shell.FromConfig(app.logger)
+			executor, err = v.Execute.Shell.FromConfig(app.context, app.logger)
 			if err != nil {
 				return err
 			}
@@ -180,19 +197,25 @@ func (app *App) Run() error {
 	}
 
 	//Start all the consumers
-	app.spawnWorkers(len(runtimeConfig.Services), jobs)
+	app.spawnWorkers(12, jobs)
 
 	//Start producers
-	app.filelistener.Run()
+	app.filelistener.Run(time.Millisecond * 100)
 	app.cron.Start()
 
 	//Listen for cancellation
 	//Should be a select on multiple things really
 	<-ctx.Done()
+	app.logger.Debug("Received sigint")
 
+	app.logger.Debug("Stopping shared services")
+	app.cron.Stop()
+	app.filelistener.Stop()
+	app.logger.Debug("Closing worker chan")
 	close(jobs)
 
 	//Wait for all consumers to exit
+	app.logger.Debug("Waiting for workers to exit")
 	app.workerWg.Wait()
 
 	return nil

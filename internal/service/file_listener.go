@@ -2,71 +2,126 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	filewatcher "github.com/radovskyb/watcher"
+	"github.com/sirupsen/logrus"
 )
 
-func NewFileListener(ctx context.Context) *FileListener {
+var (
+	ErrWatchCreateExistingFile = errors.New("error msg goes here")
+)
+
+func NewFileListener(
+	ctx context.Context,
+	logger logrus.FieldLogger) *FileListener {
 	return &FileListener{
 		context: ctx,
-		Watcher: filewatcher.New(),
-		Entries: make(map[string]*FileEntry),
+		logger:  logger,
+		watcher: filewatcher.New(),
+		entries: make([]fileEntry, 0),
 	}
 }
 
-type FileEntry struct {
-	file string
+type fileEntry struct {
+	path string
 	op   filewatcher.Op
 	h    func()
 }
 
 type FileListener struct {
 	context context.Context
-	Watcher *filewatcher.Watcher
-	Entries map[string]*FileEntry
+	logger  logrus.FieldLogger
+
+	watcher *filewatcher.Watcher
+	entries []fileEntry
 }
 
 func (fl *FileListener) Stop() {
-	fl.Watcher.Close()
+	fl.watcher.Close()
+	close(fl.watcher.Event)
 }
 
 func (fl *FileListener) AddFunc(op filewatcher.Op, path string, f func()) error {
-	err := fl.Watcher.Add(path)
+
+	err := fl.watcher.Add(path)
 	if err != nil {
 		return err
 	}
-	//Path is not a very unique identifier, you could have multiple for one path
-	fl.Entries[path] = &FileEntry{
-		file: path,
+
+	fileInfo, err := os.Stat(path)
+
+	if err == os.ErrNotExist {
+		//Try and get the dir
+		dir := filepath.Dir(path)
+		_, err := os.Open(dir)
+		if err != nil {
+			return err
+		}
+
+		fl.entries = append(fl.entries, fileEntry{
+			path: dir,
+			op:   op,
+			h:    f,
+		})
+
+		return nil
+	}
+
+	if op == filewatcher.Create && !fileInfo.IsDir() {
+		return ErrWatchCreateExistingFile
+	}
+
+	fl.entries = append(fl.entries, fileEntry{
+		path: path,
 		op:   op,
 		h:    f,
-	}
+	})
 
 	return nil
 }
 
-func (f *FileListener) Run() {
+func (entry fileEntry) matches(event filewatcher.Event) bool {
+	if event.Path == entry.path {
+		return entry.op == event.Op
+	}
+	if entry.path == filepath.Dir(event.Path) {
+		return entry.op == event.Op
+	}
+
+	return false
+}
+
+func (f *FileListener) Run(pollingInterval time.Duration) {
 
 	//TODO: error trap
-	go f.Watcher.Start(100 * time.Millisecond)
+	go f.watcher.Start(100 * time.Millisecond)
 
 	go func() {
 		for {
 			select {
 			case <-f.context.Done():
 				return
-			case event, ok := <-f.Watcher.Event:
+			case event, ok := <-f.watcher.Event:
 				if !ok {
 					return
 				}
 
-				entry := f.Entries[event.Path]
-				if entry != nil && event.Op == entry.op {
-					entry.h()
+				f.logger.
+					WithField("event", event).
+					Debug("Event")
+
+				for _, v := range f.entries {
+					if v.matches(event) {
+						v.h()
+					}
 				}
-			case err, ok := <-f.Watcher.Error:
+
+			case err, ok := <-f.watcher.Error:
 				if !ok {
 					return
 				}

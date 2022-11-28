@@ -1,9 +1,10 @@
 services:
   - name: ping
     condition:
-      cron:
-        schedule: "*/10 * * * * *"
+      file:
+        operation: "update"
+        path: "/home/micky/dev/saucisson"
     execute:
       shell:
         command: |
-          "sleep 3; echo pong"
+          "echo hello world"
