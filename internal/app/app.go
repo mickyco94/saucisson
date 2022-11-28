@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"runtime"
@@ -13,45 +12,60 @@ import (
 	"github.com/mickyco94/saucisson/internal/parser"
 	"github.com/mickyco94/saucisson/internal/service"
 	"github.com/robfig/cron/v3"
+	"github.com/sirupsen/logrus"
 )
 
 type BaseConfig struct {
-	Services []*Service
+	Services []*svc
 }
 
 type App struct {
 	context      context.Context
+	logger       logrus.FieldLogger
 	workerWg     *sync.WaitGroup
 	cron         *cron.Cron
 	filelistener *service.FileListener
 }
 
-type Service struct {
-	Name      string
-	Condition component.Condition
-	Executor  component.Executor
+type svc struct {
+	name      string
+	condition component.Condition
+	executor  component.Executor
+	logger    logrus.FieldLogger
 }
 
 func NewService(
 	name string,
 	condition component.Condition,
-	executor component.Executor) *Service {
+	executor component.Executor) *svc {
 
-	return &Service{
-		Name:      name,
-		Condition: condition,
-		Executor:  executor,
+	return &svc{
+		name:      name,
+		condition: condition,
+		executor:  executor,
 	}
 }
 
-type Job struct {
+type job struct {
 	serviceName string
 	executor    component.Executor
 }
 
 func New(ctx context.Context) *App {
+	formatter := &logrus.TextFormatter{
+		FullTimestamp: true,
+	}
+
+	logger := logrus.New().
+		WithField("app", "saucission").
+		WithField("gr_count", runtime.NumGoroutine())
+
+	logger.Logger.SetFormatter(formatter)
+
+	logger.Logger.SetLevel(logrus.DebugLevel)
 	return &App{
 		context:      ctx,
+		logger:       logger,
 		workerWg:     &sync.WaitGroup{},
 		cron:         cron.New(cron.WithSeconds()),
 		filelistener: service.NewFileListener(ctx),
@@ -61,15 +75,15 @@ func New(ctx context.Context) *App {
 func (a *App) debugGoroutines() {
 	go func() {
 		for {
-			log.Printf("GR: %v\n", runtime.NumGoroutine())
+			a.logger.WithField("count", runtime.NumGoroutine()).Debug("GoRoutine counter")
 			time.Sleep(1 * time.Second)
 		}
 	}()
 }
 
-func (a *App) spawnWorkers(workerCount int, jobs chan *Job) {
+func (a *App) spawnWorkers(workerCount int, jobs chan *job) {
 
-	worker := func(jobss chan *Job) {
+	worker := func(jobss chan *job) {
 		defer a.workerWg.Done()
 		for j := range jobss {
 			j.executor.Execute()
@@ -92,12 +106,6 @@ func (a *App) spawnWorkers(workerCount int, jobs chan *Job) {
 func (app *App) Run() error {
 	rawCfg, err := parser.Parse("./template.yml")
 
-	// if 1 > 0 {
-	// 	bytes, _ := json.MarshalIndent(rawCfg, "", "  ")
-	// 	log.Printf("CFG: %v\n", string(bytes))
-	// 	return nil
-	// }
-
 	if err != nil {
 		return err
 	}
@@ -115,7 +123,7 @@ func (app *App) Run() error {
 
 	//Service pipeline setup
 	runtimeConfig := &BaseConfig{
-		Services: make([]*Service, len(rawCfg.Services)),
+		Services: make([]*svc, len(rawCfg.Services)),
 	}
 
 	for i, v := range rawCfg.Services {
@@ -123,6 +131,7 @@ func (app *App) Run() error {
 		var executor component.Executor
 
 		//TODO: Support multiple conditions and executors
+		//This pattern doesn't really scale..
 		if v.Condition.Cron != nil {
 			condition, err = v.Condition.Cron.FromConfig(app.cron)
 			if err != nil {
@@ -136,35 +145,36 @@ func (app *App) Run() error {
 		}
 
 		if v.Execute.Shell != nil {
-			executor, err = v.Execute.Shell.FromConfig()
+			executor, err = v.Execute.Shell.FromConfig(app.logger)
 			if err != nil {
 				return err
 			}
 		}
 
-		serviceConfig := &Service{
-			Name:      v.Name,
-			Condition: condition,
-			Executor:  executor,
+		serviceConfig := &svc{
+			name:      v.Name,
+			condition: condition,
+			executor:  executor,
+			logger:    app.logger.WithField("svc", v.Name),
 		}
 		runtimeConfig.Services[i] = serviceConfig
 	}
 
-	jobs := make(chan *Job)
+	jobs := make(chan *job)
 
 	for _, s := range runtimeConfig.Services {
 		//Need to caputre s ref
-		func(s *Service) {
-			log.Printf("Registering: %v\n", s.Name)
-			err := s.Condition.Register(func() {
-				jobs <- &Job{
-					serviceName: s.Name,
-					executor:    s.Executor,
+		func(s *svc) {
+			s.logger.Info("Registering")
+			err := s.condition.Register(func() {
+				jobs <- &job{
+					serviceName: s.name,
+					executor:    s.executor,
 				}
 			})
 
 			if err != nil {
-				log.Printf("Error registering: %v\n", err)
+				s.logger.Error("Error registering: %v", err)
 			}
 		}(s)
 	}

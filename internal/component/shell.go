@@ -1,48 +1,59 @@
 package component
 
 import (
-	"log"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
-func (c *ShellConfig) FromConfig() (*Shell, error) {
-	return NewShell(c.Command), nil
+func (c *ShellConfig) FromConfig(logger logrus.FieldLogger) (*Shell, error) {
+	return NewShell(c.Command, logger), nil
 }
 
-func NewShell(command string) *Shell {
+func NewShell(
+	command string,
+	logger logrus.FieldLogger) *Shell {
 	return &Shell{
+		logger:  logger,
 		command: command,
 	}
 }
 
 type Shell struct {
+	logger  logrus.FieldLogger
 	command string
 }
 
 func (s *Shell) getShell() string {
 	val, exists := os.LookupEnv("SHELL")
 	if !exists {
-		return "bash" //Make the aggressive assumption that they have bash
+		return "bash" //? Make the aggressive assumption that they have bash
 	}
 	return val
 }
 
-func (s *Shell) Execute() error {
-	runCmd := s.command
+func escape(input string) string {
+	return strings.Replace(input, "\"", "", -1)
+}
 
-	removeQuotes := strings.Replace(runCmd, "\"", "", -1)
+func (s *Shell) Execute() error {
 
 	sh := s.getShell()
 
-	cmd, err := exec.Command(sh, "-c", removeQuotes).Output()
+	cmd, err := exec.Command(sh, "-c", escape(s.command)).Output()
 
 	if err != nil {
 		return err
 	}
 
-	log.Println("Output:\n", string(cmd))
+	stdout := string(cmd)
+
+	s.logger.
+		WithField("stdout", escape(stdout)).
+		WithField("input", escape(s.command)).
+		Info("Completed")
 
 	return nil
 

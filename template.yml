@@ -1,10 +1,9 @@
 services:
-  - name: listen_for_file_create
+  - name: ping
     condition:
-      file:
-        path: "/home/micky/dev/saucisson/TODO.md"
-        operation: "update"
+      cron:
+        schedule: "*/10 * * * * *"
     execute:
       shell:
         command: |
-          "echo file created"
+          "sleep 3; echo pong"
