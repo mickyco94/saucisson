@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+func (c *ShellConfig) FromConfig() (*Shell, error) {
+	return NewShell(c.Command), nil
+}
+
 func NewShell(command string) *Shell {
 	return &Shell{
 		command: command,
@@ -42,4 +46,8 @@ func (s *Shell) Execute() error {
 
 	return nil
 
+}
+
+type ShellConfig struct {
+	Command string `yaml:"command"`
 }

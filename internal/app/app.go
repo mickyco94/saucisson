@@ -12,7 +12,6 @@ import (
 	"github.com/mickyco94/saucisson/internal/component"
 	"github.com/mickyco94/saucisson/internal/parser"
 	"github.com/mickyco94/saucisson/internal/service"
-	"github.com/radovskyb/watcher"
 	"github.com/robfig/cron/v3"
 )
 
@@ -125,15 +124,22 @@ func (app *App) Run() error {
 
 		//TODO: Support multiple conditions and executors
 		if v.Condition.Cron != nil {
-			condition = component.NewCronCondition(v.Condition.Cron.Schedule, app.cron)
+			condition, err = v.Condition.Cron.FromConfig(app.cron)
+			if err != nil {
+				return err
+			}
 		} else if v.Condition.File != nil {
-			fileConfig := v.Condition.File
-			//TODO: Add a mapping for the file stuff
-			condition = component.NewFile(fileConfig.Path, watcher.Write, app.filelistener)
+			condition, err = v.Condition.File.FromConfig(app.filelistener)
+			if err != nil {
+				return err
+			}
 		}
 
 		if v.Execute.Shell != nil {
-			executor = component.NewShell(v.Execute.Shell.Command)
+			executor, err = v.Execute.Shell.FromConfig()
+			if err != nil {
+				return err
+			}
 		}
 
 		serviceConfig := &Service{
