@@ -21,31 +21,39 @@ func (fileConfig *FileConfig) FromConfig(listener *service.FileListener) (*File,
 	default:
 		return nil, errors.New("Unsupported operation")
 	}
-	return NewFile(fileConfig.Path, op, listener), nil
+
+	return NewFile(fileConfig.Path, op, fileConfig.Recursive, listener), nil
 }
 
 func NewFile(
 	path string,
 	op filewatcher.Op,
+	recursive bool,
 	listener *service.FileListener) *File {
 	return &File{
-		path:   path,
-		op:     op,
-		parent: listener,
+		path:      path,
+		op:        op,
+		recursive: recursive,
+		parent:    listener,
 	}
 }
 
+// Possibly split between file + folder...?
+// Both actually use FileListener but have more sensible config options
 type File struct {
-	path   string
-	op     filewatcher.Op
+	path      string
+	op        filewatcher.Op
+	recursive bool
+
 	parent *service.FileListener
 }
 
 func (file *File) Register(f func()) error {
-	return file.parent.AddFunc(file.op, file.path, f)
+	return file.parent.AddFunc(file.op, file.path, file.recursive, f)
 }
 
 type FileConfig struct {
 	Operation string `yaml:"operation"`
 	Path      string `yaml:"path"`
+	Recursive bool   `yaml:"recursive"`
 }

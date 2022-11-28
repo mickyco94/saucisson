@@ -143,6 +143,7 @@ func (app *App) Run() error {
 		Services: make([]*svc, len(config.Services)),
 	}
 
+	//TODO: Move this elsewhere and test
 	for i, v := range config.Services {
 		var condition component.Condition
 		var executor component.Executor
@@ -197,7 +198,7 @@ func (app *App) Run() error {
 	}
 
 	//Start all the consumers
-	app.spawnWorkers(12, jobs)
+	app.spawnWorkers(len(runtimeConfig.Services), jobs)
 
 	//Start producers
 	app.filelistener.Run(time.Millisecond * 100)
@@ -206,16 +207,12 @@ func (app *App) Run() error {
 	//Listen for cancellation
 	//Should be a select on multiple things really
 	<-ctx.Done()
-	app.logger.Debug("Received sigint")
 
-	app.logger.Debug("Stopping shared services")
 	app.cron.Stop()
 	app.filelistener.Stop()
-	app.logger.Debug("Closing worker chan")
 	close(jobs)
 
 	//Wait for all consumers to exit
-	app.logger.Debug("Waiting for workers to exit")
 	app.workerWg.Wait()
 
 	return nil

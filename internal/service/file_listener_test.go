@@ -30,7 +30,7 @@ func TestWatchDirectoryForCreateOp(t *testing.T) {
 
 	done := make(chan struct{})
 
-	err = listener.AddFunc(watcher.Create, basePath, func() {
+	err = listener.AddFunc(watcher.Create, basePath, false, func() {
 		done <- struct{}{}
 	})
 
@@ -69,7 +69,7 @@ func TestWatchForRename(t *testing.T) {
 
 	done := make(chan struct{})
 
-	err = listener.AddFunc(watcher.Rename, basePath, func() {
+	err = listener.AddFunc(watcher.Rename, basePath, false, func() {
 		done <- struct{}{}
 	})
 
@@ -105,7 +105,48 @@ func TestWatchCreateForExistingFileReturnsError(t *testing.T) {
 
 	listener := NewFileListener(context.Background(), logrus.New())
 
-	err = listener.AddFunc(watcher.Create, filePath, func() {})
+	err = listener.AddFunc(watcher.Create, filePath, false, func() {})
 
 	assert.Error(t, err, ErrWatchCreateExistingFile)
+	assert.Len(t, listener.entries, 0)
+	assert.Len(t, listener.watcher.WatchedFiles(), 0)
+}
+
+func TestWatchFileRemoval(t *testing.T) {
+	//arrange
+	basePath, err := setup()
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	filePath := path.Join(basePath, "delete_me.txt")
+	err = ioutil.WriteFile(filePath, []byte("foo_bar"), 0644)
+
+	listener := NewFileListener(context.Background(), logrus.New())
+
+	done := make(chan struct{})
+
+	err = listener.AddFunc(watcher.Remove, basePath, false, func() {
+		done <- struct{}{}
+	})
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	listener.Run(time.Millisecond * 100)
+
+	//act
+	err = os.Remove(filePath)
+	if err != nil {
+		t.Error(err)
+	}
+
+	//assert
+	select {
+	case <-time.NewTimer(1 * time.Second).C:
+		t.Error("Timed out")
+	case <-done:
+	}
 }

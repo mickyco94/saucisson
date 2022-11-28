@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	filewatcher "github.com/radovskyb/watcher"
@@ -19,6 +20,10 @@ var (
 func NewFileListener(
 	ctx context.Context,
 	logger logrus.FieldLogger) *FileListener {
+
+	watcher := filewatcher.New()
+	watcher.IgnoreHiddenFiles(false) //Decide this on a case by case basis
+
 	return &FileListener{
 		context: ctx,
 		logger:  logger,
@@ -28,9 +33,10 @@ func NewFileListener(
 }
 
 type fileEntry struct {
-	path string
-	op   filewatcher.Op
-	h    func()
+	path      string
+	op        filewatcher.Op
+	h         func()
+	recursive bool
 }
 
 type FileListener struct {
@@ -46,16 +52,13 @@ func (fl *FileListener) Stop() {
 	close(fl.watcher.Event)
 }
 
-func (fl *FileListener) AddFunc(op filewatcher.Op, path string, f func()) error {
+func (fl *FileListener) AddFunc(op filewatcher.Op, path string, recursive bool, f func()) error {
 
-	err := fl.watcher.Add(path)
-	if err != nil {
-		return err
-	}
-
+	var entry fileEntry
 	fileInfo, err := os.Stat(path)
 
 	if err == os.ErrNotExist {
+
 		//Try and get the dir
 		dir := filepath.Dir(path)
 		_, err := os.Open(dir)
@@ -63,34 +66,49 @@ func (fl *FileListener) AddFunc(op filewatcher.Op, path string, f func()) error 
 			return err
 		}
 
-		fl.entries = append(fl.entries, fileEntry{
+		entry = fileEntry{
 			path: dir,
 			op:   op,
 			h:    f,
-		})
-
-		return nil
-	}
-
-	if op == filewatcher.Create && !fileInfo.IsDir() {
+		}
+	} else if err != nil {
+		return err
+	} else if op == filewatcher.Create && !fileInfo.IsDir() {
 		return ErrWatchCreateExistingFile
 	}
 
-	fl.entries = append(fl.entries, fileEntry{
-		path: path,
-		op:   op,
-		h:    f,
-	})
+	entry = fileEntry{
+		path:      path,
+		op:        op,
+		h:         f,
+		recursive: recursive && fileInfo.IsDir(), //Cannot recursively watch a file
+	}
 
-	return nil
+	fl.entries = append(fl.entries, entry)
+
+	if entry.recursive {
+		return fl.watcher.AddRecursive(entry.path)
+	} else {
+		return fl.watcher.Add(entry.path)
+	}
 }
 
 func (entry fileEntry) matches(event filewatcher.Event) bool {
-	if event.Path == entry.path {
-		return entry.op == event.Op
+	if event.Op != entry.op {
+		return false
 	}
+
+	if event.Path == entry.path {
+		return true
+	}
+
+	//This is allowing reads one dir up
 	if entry.path == filepath.Dir(event.Path) {
-		return entry.op == event.Op
+		return true
+	}
+
+	if entry.recursive && strings.Contains(event.Path, entry.path) {
+		return true
 	}
 
 	return false

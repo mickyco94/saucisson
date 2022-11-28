@@ -2,9 +2,18 @@ services:
   - name: ping
     condition:
       file:
-        operation: "update"
+        operation: update
         path: "/home/micky/dev/saucisson"
     execute:
       shell:
         command: |
           "echo hello world"
+  - name: delete_test
+    condition:
+      file:
+        operation: remove
+        path: "/home/micky/dev/saucisson/tests"
+    execute:
+      shell:
+        command: |
+          "echo something got got"
