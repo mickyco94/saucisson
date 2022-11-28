@@ -44,6 +44,8 @@ func (fl *FileListener) AddFunc(op filewatcher.Op, path string, f func()) error 
 		h:    f,
 	}
 
+	log.Printf("Added: %v\n", fl.Entries)
+
 	return nil
 }
 
@@ -62,9 +64,10 @@ func (f *FileListener) Run() {
 					return
 				}
 
-				log.Printf("Event: %v\n", event)
+				log.Printf("Event: %v\n", event.Path)
 
-				entry := f.Entries[event.Name()]
+				entry := f.Entries[event.Path]
+				log.Printf("%v\n", entry)
 				if entry != nil && event.Op == entry.op {
 					entry.h()
 				}

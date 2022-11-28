@@ -12,6 +12,7 @@ import (
 	"github.com/mickyco94/saucisson/internal/component"
 	"github.com/mickyco94/saucisson/internal/parser"
 	"github.com/mickyco94/saucisson/internal/service"
+	"github.com/radovskyb/watcher"
 	"github.com/robfig/cron/v3"
 )
 
@@ -98,6 +99,12 @@ func (a *App) spawnWorkers(workerCount int, jobs chan *Job) {
 func (app *App) Run() error {
 	rawCfg, err := parser.Parse("./template.yml")
 
+	// if 1 > 0 {
+	// 	bytes, _ := json.MarshalIndent(rawCfg, "", "  ")
+	// 	log.Printf("CFG: %v\n", string(bytes))
+	// 	return nil
+	// }
+
 	if err != nil {
 		return err
 	}
@@ -119,24 +126,20 @@ func (app *App) Run() error {
 	}
 
 	for i, v := range rawCfg.Services {
-		executorId, err := v.Execute.Name()
-		conditionId, err := v.Condition.Name()
+		var condition component.Condition
+		var executor component.Executor
 
-		if err != nil {
-			return err
+		//TODO: Support multiple conditions and executors
+		if v.Condition.Cron != nil {
+			condition = component.NewCronCondition(v.Condition.Cron.Schedule, app.services.cron)
+		} else if v.Condition.File != nil {
+			fileConfig := v.Condition.File
+			//TODO: Add a mapping for the file stuff
+			condition = component.NewFile(fileConfig.Path, watcher.Write, app.services.filelistener)
 		}
 
-		executorCtor := ExecutorConstructors[executorId]
-		condCtor := ConditionConstructors[conditionId]
-
-		executorConfig, err := v.Execute.ExtractSection(executorId)
-		conditionConfig, err := v.Condition.ExtractSection(conditionId)
-
-		executor, err := executorCtor(app.services, executorConfig)
-		condition, err := condCtor(app.services, conditionConfig)
-
-		if err != nil {
-			return err
+		if v.Execute.Shell != nil {
+			executor = component.NewShell(v.Execute.Shell.Command)
 		}
 
 		serviceConfig := &Service{

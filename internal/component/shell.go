@@ -5,8 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/mickyco94/saucisson/internal/parser"
 )
 
 func NewShell(command string) *Shell {
@@ -44,16 +42,4 @@ func (s *Shell) Execute() error {
 
 	return nil
 
-}
-
-func ParseConfig(c parser.Raw) (Executor, error) {
-	command, err := c.ExtractString("command")
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &Shell{
-		command: command,
-	}, nil
 }
