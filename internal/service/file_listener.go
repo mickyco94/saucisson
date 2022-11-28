@@ -44,8 +44,6 @@ func (fl *FileListener) AddFunc(op filewatcher.Op, path string, f func()) error 
 		h:    f,
 	}
 
-	log.Printf("Added: %v\n", fl.Entries)
-
 	return nil
 }
 

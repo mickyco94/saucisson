@@ -21,12 +21,8 @@ type BaseConfig struct {
 }
 
 type App struct {
-	context  context.Context
-	workerWg *sync.WaitGroup
-	services *services
-}
-
-type services struct {
+	context      context.Context
+	workerWg     *sync.WaitGroup
 	cron         *cron.Cron
 	filelistener *service.FileListener
 }
@@ -56,12 +52,10 @@ type Job struct {
 
 func New(ctx context.Context) *App {
 	return &App{
-		context:  ctx,
-		workerWg: &sync.WaitGroup{},
-		services: &services{
-			cron:         cron.New(cron.WithSeconds()),
-			filelistener: service.NewFileListener(ctx),
-		},
+		context:      ctx,
+		workerWg:     &sync.WaitGroup{},
+		cron:         cron.New(cron.WithSeconds()),
+		filelistener: service.NewFileListener(ctx),
 	}
 }
 
@@ -131,11 +125,11 @@ func (app *App) Run() error {
 
 		//TODO: Support multiple conditions and executors
 		if v.Condition.Cron != nil {
-			condition = component.NewCronCondition(v.Condition.Cron.Schedule, app.services.cron)
+			condition = component.NewCronCondition(v.Condition.Cron.Schedule, app.cron)
 		} else if v.Condition.File != nil {
 			fileConfig := v.Condition.File
 			//TODO: Add a mapping for the file stuff
-			condition = component.NewFile(fileConfig.Path, watcher.Write, app.services.filelistener)
+			condition = component.NewFile(fileConfig.Path, watcher.Write, app.filelistener)
 		}
 
 		if v.Execute.Shell != nil {
@@ -173,8 +167,8 @@ func (app *App) Run() error {
 	app.spawnWorkers(len(runtimeConfig.Services), jobs)
 
 	//Start producers
-	app.services.filelistener.Run()
-	app.services.cron.Start()
+	app.filelistener.Run()
+	app.cron.Start()
 
 	//Listen for cancellation
 	//Should be a select on multiple things really
