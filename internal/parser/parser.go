@@ -3,6 +3,7 @@ package parser
 import (
 	"io"
 
+	"github.com/mickyco94/saucisson/internal/condition"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,8 +21,8 @@ type ServiceSpec struct {
 }
 
 type ComponentSpec struct {
-	Type   string    `yaml:"type"`
-	Config yaml.Node `yaml:"config"`
+	Type   condition.Condition `yaml:"type"`
+	Config yaml.Node           `yaml:"config"`
 }
 
 func (r *RawConfig) Parse(raw io.Reader) error {

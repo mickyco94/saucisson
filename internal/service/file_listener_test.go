@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/condition"
-	"github.com/radovskyb/watcher"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
@@ -33,7 +32,7 @@ func TestWatchDirectoryForCreateOp(t *testing.T) {
 
 	condition := &condition.File{
 		Path:      basePath,
-		Operation: watcher.Create,
+		Operation: condition.Create,
 		Recursive: false,
 	}
 
@@ -78,7 +77,7 @@ func TestWatchForRename(t *testing.T) {
 
 	condition := &condition.File{
 		Path:      basePath,
-		Operation: watcher.Rename,
+		Operation: condition.Rename,
 		Recursive: false,
 	}
 
@@ -120,7 +119,7 @@ func TestWatchCreateForExistingFileReturnsError(t *testing.T) {
 
 	condition := &condition.File{
 		Path:      filePath,
-		Operation: watcher.Create,
+		Operation: condition.Create,
 		Recursive: false,
 	}
 
@@ -148,7 +147,7 @@ func TestWatchFileRemoval(t *testing.T) {
 
 	condition := &condition.File{
 		Path:      basePath,
-		Operation: watcher.Remove,
+		Operation: condition.Remove,
 		Recursive: false,
 	}
 

@@ -18,6 +18,13 @@ var (
 	ErrWatchCreateExistingFile = errors.New("Cannot watch for creation of a file that already exists")
 )
 
+var operationMap = map[condition.Operation]filewatcher.Op{
+	condition.Create: filewatcher.Create,
+	condition.Remove: filewatcher.Remove,
+	condition.Rename: filewatcher.Rename,
+	condition.Update: filewatcher.Write,
+}
+
 func NewFileListener(
 	ctx context.Context,
 	logger logrus.FieldLogger) *FileListener {
@@ -56,7 +63,9 @@ func (f *FileListener) HandleFunc(fileCondition *condition.File, observer func()
 
 	file, err := os.Stat(fileCondition.Path)
 
-	if file != nil && !file.IsDir() && fileCondition.Operation == filewatcher.Create {
+	if file != nil &&
+		!file.IsDir() &&
+		operationMap[fileCondition.Operation] == filewatcher.Create {
 		return ErrWatchCreateExistingFile
 	}
 
@@ -64,7 +73,7 @@ func (f *FileListener) HandleFunc(fileCondition *condition.File, observer func()
 
 	f.entries = append(f.entries, fileEntry{
 		path:      fileCondition.Path,
-		op:        fileCondition.Operation,
+		op:        operationMap[fileCondition.Operation],
 		h:         observer,
 		recursive: fileCondition.Recursive,
 	})

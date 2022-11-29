@@ -33,15 +33,15 @@ func New(ctx context.Context) *App {
 
 	return &App{
 		context:      ctx,
-		executorPool: executor.NewExecutorPool(ctx, 5), //TODO: Drive from config
+		executorPool: executor.NewExecutorPool(logger, 5), //TODO: Drive from config
 		logger:       logger,
 		cron:         service.NewCron(),
 		filelistener: service.NewFileListener(ctx, logger),
 	}
 }
 
-func (app *App) Run() error {
-	file, err := os.Open("./template.yml")
+func (app *App) Run(templatePath string) error {
+	file, err := os.Open(templatePath)
 	if err != nil {
 		return err
 	}
@@ -64,19 +64,25 @@ func (app *App) Run() error {
 	}()
 
 	for _, s := range config.Services {
-		svc := app.ConstructService(s)
-		for _, fileCond := range svc.FileCondition {
+		svc := app.construct(s)
+		for _, fileCond := range svc.files {
 			err := app.filelistener.HandleFunc(fileCond, func() {
-				app.executorPool.Enqueue(svc.Executor)
+				app.executorPool.Enqueue(executor.Job{
+					Service:  s.Name,
+					Executor: svc.executor,
+				})
 			})
 
 			if err != nil {
 				panic(err)
 			}
 		}
-		for _, cronCond := range svc.CronConditions {
+		for _, cronCond := range svc.crons {
 			app.cron.HandleFunc(cronCond, func() {
-				app.executorPool.Enqueue(svc.Executor)
+				app.executorPool.Enqueue(executor.Job{
+					Service:  s.Name,
+					Executor: svc.executor,
+				})
 			})
 			if err != nil {
 				panic(err)
@@ -100,39 +106,40 @@ func (app *App) Run() error {
 	return nil
 }
 
-// Service can have any number of conditions of different types
+// definition can have any number of conditions of different types
 // That all need to be registered
 // For all of those conditions, each executor needs to be registered
-type Service struct {
-	CronConditions []*condition.Cron
-	FileCondition  []*condition.File
-	Executor       executor.Executor
+type definition struct {
+	crons    []*condition.Cron
+	files    []*condition.File
+	executor executor.Executor
 }
 
-// ConstructService constructs an actual implementation of a Service from
+// construct constructs an actual implementation of a Service from
 // a specification
-func (app *App) ConstructService(spec parser.ServiceSpec) *Service {
-	svc := &Service{
-		CronConditions: make([]*condition.Cron, 0),
-		FileCondition:  make([]*condition.File, 0),
-		Executor:       nil,
+func (app *App) construct(spec parser.ServiceSpec) *definition {
+	svc := &definition{
+		crons:    make([]*condition.Cron, 0),
+		files:    make([]*condition.File, 0),
+		executor: nil,
 	}
 
-	if spec.Condition.Type == "cron" {
+	switch spec.Condition.Type {
+	case condition.CronKey:
 		cronCondition := &condition.Cron{}
-		cronCondition.Configure(spec.Condition.Config)
-
-		svc.CronConditions = append(svc.CronConditions, cronCondition)
-	} else if spec.Condition.Type == "file" {
+		spec.Condition.Config.Decode(cronCondition)
+		svc.crons = append(svc.crons, cronCondition)
+	case condition.FileKey:
 		fileCondition := &condition.File{}
-		fileCondition.Configure(spec.Condition.Config)
-		svc.FileCondition = append(svc.FileCondition, fileCondition)
+		spec.Condition.Config.Decode(fileCondition)
+		svc.files = append(svc.files, fileCondition)
 	}
 
-	if spec.Execute.Type == "shell" {
+	switch spec.Execute.Type {
+	case "shell":
 		shell := executor.NewShell(app.context, app.logger)
 		shell.Configure(spec.Execute.Config)
-		svc.Executor = shell
+		svc.executor = shell
 	}
 
 	return svc

@@ -1,70 +1,84 @@
 package executor
 
 import (
-	"context"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
-//TODO: Need to decorate executor so that it runs on a shared
-//Executor pool, specifics of that idk. Using an interface seems gross
-//Passing a context object, maybe have a chan for each executor...?
-//Dictionary of channels...?
-
-//Channel for each service? Fan out to each executor?
-
-//Execution context type?
-
-//	type ExecutionContext struct {
-//		conditionContext any
-//		serviceName      string
-//	}
-type Pool struct {
-	runningMu sync.Mutex
-	wg        sync.WaitGroup
-	ctx       context.Context
-
-	size int
-	//Internal queue for work
-	//TODO: Send more context :)
-	jobs chan Executor
+// Job represents a unit of work
+// triggered by a Service definitions condition(s) being satisfied
+type Job struct {
+	Service  string
+	Executor Executor
 }
 
-func NewExecutorPool(context context.Context, size int) *Pool {
+// Pool represents a collection of workers that can be used
+// by `executor.Execute`
+type Pool struct {
+	runningMu sync.Mutex
+	running   bool
+	size      int
+
+	wg     sync.WaitGroup
+	logger logrus.FieldLogger
+
+	jobs chan Job
+}
+
+func NewExecutorPool(logger logrus.FieldLogger, size int) *Pool {
 	return &Pool{
-		ctx:       context,
 		size:      size,
 		wg:        sync.WaitGroup{},
+		running:   false,
 		runningMu: sync.Mutex{},
-		jobs:      make(chan Executor),
+		logger:    logger,
+		jobs:      make(chan Job),
 	}
 }
 
 func (pool *Pool) Stop() {
+	pool.runningMu.Lock()
+	defer pool.runningMu.Unlock()
+
+	if !pool.running {
+		return
+	}
+
 	close(pool.jobs)
 	pool.wg.Wait()
+	pool.running = false
 }
 
 func (pool *Pool) Run() {
+	pool.runningMu.Lock()
+	defer pool.runningMu.Unlock()
+	if pool.running {
+		return
+	}
+	pool.running = true
+
 	pool.wg.Add(pool.size)
 
 	for i := 0; i < pool.size; i++ {
 		go func() {
 			defer pool.wg.Done()
 
-			select {
-			case <-pool.ctx.Done():
-				return
-			case j, open := <-pool.jobs:
-				if !open {
-					return
+			for j := range pool.jobs {
+				//TODO: Error handle
+				err := j.Executor.Execute()
+				if err != nil {
+					pool.logger.
+						WithError(err).
+						WithField("svc", j.Service).
+						Error("Execution failed")
 				}
-				j.Execute()
 			}
 		}()
 	}
 }
 
 // Enqueue adds the execution to the queue
-func (pool *Pool) Enqueue(xc Executor) {
-	pool.jobs <- xc
+func (pool *Pool) Enqueue(j Job) {
+	pool.jobs <- j
 }

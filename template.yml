@@ -16,4 +16,4 @@ services:
     execute:
       type: "shell"
       config:
-        command: "echo ya"
+        command: "gooba"
