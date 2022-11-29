@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mickyco94/saucisson/internal/component"
+	"github.com/mickyco94/saucisson/internal/condition"
 	filewatcher "github.com/radovskyb/watcher"
 	"github.com/sirupsen/logrus"
 )
@@ -51,16 +51,14 @@ func (fl *FileListener) Stop() {
 	close(fl.watcher.Event)
 }
 
-type FileFunc func()
-
-func (f *FileListener) HandleFunc(fileCondition *component.File, h FileFunc) error {
+func (f *FileListener) HandleFunc(fileCondition *condition.File, observer func()) error {
 	//
 	err := f.watcher.Add(fileCondition.Path)
 
 	f.entries = append(f.entries, fileEntry{
 		path:      fileCondition.Path,
 		op:        fileCondition.Operation,
-		h:         h,
+		h:         observer,
 		recursive: fileCondition.Recursive,
 	})
 

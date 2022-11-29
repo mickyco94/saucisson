@@ -1,4 +1,4 @@
-package component
+package condition
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 )
 
 func (file *File) Configure(yaml yaml.Node) error {
-	fileconfig := &FileConfig{}
+	fileconfig := &fileConfig{}
 	yaml.Decode(fileconfig)
 
 	switch fileconfig.Operation {
@@ -36,7 +36,7 @@ type File struct {
 	Recursive bool
 }
 
-type FileConfig struct {
+type fileConfig struct {
 	Operation string `yaml:"operation"`
 	Path      string `yaml:"path"`
 	Recursive bool   `yaml:"recursive"`

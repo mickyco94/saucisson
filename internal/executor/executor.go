@@ -1,4 +1,4 @@
-package component
+package executor
 
 // An executor is an abstractions that represents
 // some parameterless invocation. Executors are run

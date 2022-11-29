@@ -4,13 +4,12 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"sync"
 	"time"
 
-	"github.com/mickyco94/saucisson/internal/component"
+	"github.com/mickyco94/saucisson/internal/condition"
+	"github.com/mickyco94/saucisson/internal/executor"
 	"github.com/mickyco94/saucisson/internal/parser"
 	"github.com/mickyco94/saucisson/internal/service"
-	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,9 +19,9 @@ import (
 type App struct {
 	context      context.Context
 	logger       logrus.FieldLogger
-	cron         *cron.Cron
+	cron         *service.Cron
 	filelistener *service.FileListener
-	executorPool *ExecutorPool
+	executorPool *executor.Pool
 }
 
 func New(ctx context.Context) *App {
@@ -37,9 +36,9 @@ func New(ctx context.Context) *App {
 
 	return &App{
 		context:      ctx,
-		executorPool: NewExecutorPool(ctx, 5), //TODO: Drive from config
+		executorPool: executor.NewExecutorPool(ctx, 5), //TODO: Drive from config
 		logger:       logger,
-		cron:         cron.New(cron.WithSeconds()),
+		cron:         service.NewCron(),
 		filelistener: service.NewFileListener(ctx, logger),
 	}
 }
@@ -81,7 +80,7 @@ func (app *App) Run() error {
 			}
 		}
 		for _, cronCond := range svc.CronConditions {
-			_, err := app.cron.AddFunc(cronCond.Schedule, func() {
+			app.cron.HandleFunc(cronCond, func() {
 				app.executorPool.Enqueue(svc.Executor)
 			})
 			if err != nil {
@@ -120,87 +119,36 @@ func (app *App) Run() error {
 // 	serviceName      string
 // }
 
-type ExecutorPool struct {
-	runningMu sync.Mutex
-	wg        sync.WaitGroup
-	ctx       context.Context
-
-	size int
-	//Internal queue for work
-	//TODO: Send more context :)
-	jobs chan component.Executor
-}
-
-func NewExecutorPool(context context.Context, size int) *ExecutorPool {
-	return &ExecutorPool{
-		ctx:       context,
-		size:      size,
-		wg:        sync.WaitGroup{},
-		runningMu: sync.Mutex{},
-		jobs:      make(chan component.Executor),
-	}
-}
-
-func (pool *ExecutorPool) Stop() {
-	close(pool.jobs)
-	pool.wg.Wait()
-}
-
-func (pool *ExecutorPool) Run() {
-	pool.wg.Add(pool.size)
-
-	for i := 0; i < pool.size; i++ {
-		go func() {
-			defer pool.wg.Done()
-
-			select {
-			case <-pool.ctx.Done():
-				return
-			case j, open := <-pool.jobs:
-				if !open {
-					return
-				}
-				j.Execute()
-			}
-		}()
-	}
-}
-
-// Enqueue adds the execution to the queue
-func (pool *ExecutorPool) Enqueue(xc component.Executor) {
-	pool.jobs <- xc
-}
-
 // Service can have any number of conditions of different types
 // That all need to be registered
 // For all of those conditions, each executor needs to be registered
 type Service struct {
-	CronConditions []*component.CronCondition
-	FileCondition  []*component.File
-	Executor       component.Executor
+	CronConditions []*condition.Cron
+	FileCondition  []*condition.File
+	Executor       executor.Executor
 }
 
 // ConstructService constructs an actual implementation of a Service from
 // a specification
 func (app *App) ConstructService(spec parser.ServiceSpec) *Service {
 	svc := &Service{
-		CronConditions: make([]*component.CronCondition, 0),
-		FileCondition:  make([]*component.File, 0),
+		CronConditions: make([]*condition.Cron, 0),
+		FileCondition:  make([]*condition.File, 0),
 		Executor:       nil,
 	}
 
 	if spec.Condition.Type == "cron" {
-		cronCondition := &component.CronCondition{}
+		cronCondition := &condition.Cron{}
 		cronCondition.Configure(spec.Condition.Config)
 		svc.CronConditions = append(svc.CronConditions, cronCondition)
 	} else if spec.Condition.Type == "file" {
-		fileCondition := &component.File{}
+		fileCondition := &condition.File{}
 		fileCondition.Configure(spec.Condition.Config)
 		svc.FileCondition = append(svc.FileCondition, fileCondition)
 	}
 
 	if spec.Execute.Type == "shell" {
-		shell := component.NewShell(app.context, app.logger)
+		shell := executor.NewShell(app.context, app.logger)
 		shell.Configure(spec.Execute.Config)
 		svc.Executor = shell
 	}

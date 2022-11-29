@@ -8,3 +8,12 @@ services:
       type: "shell"
       config:
         command: "echo yo"
+  - name: "#2"
+    condition:
+      type: "cron"
+      config:
+        schedule: "*/5 * * * * *"
+    execute:
+      type: "shell"
+      config:
+        command: "echo ya"
