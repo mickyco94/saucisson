@@ -13,9 +13,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-//! Todo, just listening to ctx.Done() for the fuck of it in a lot of places
-//? Totally unnecessary
-
 type App struct {
 	context      context.Context
 	logger       logrus.FieldLogger
@@ -66,8 +63,6 @@ func (app *App) Run() error {
 		cancel()
 	}()
 
-	// app.debugGoroutines()
-
 	for _, s := range config.Services {
 		svc := app.ConstructService(s)
 		for _, fileCond := range svc.FileCondition {
@@ -105,20 +100,6 @@ func (app *App) Run() error {
 	return nil
 }
 
-//TODO: Need to decorate executor so that it runs on a shared
-//Executor pool, specifics of that idk. Using an interface seems gross
-//Passing a context object, maybe have a chan for each executor...?
-//Dictionary of channels...?
-
-//Channel for each service? Fan out to each executor?
-
-//Execution context type?
-
-// type ExecutionContext struct {
-// 	conditionContext any
-// 	serviceName      string
-// }
-
 // Service can have any number of conditions of different types
 // That all need to be registered
 // For all of those conditions, each executor needs to be registered
@@ -140,6 +121,7 @@ func (app *App) ConstructService(spec parser.ServiceSpec) *Service {
 	if spec.Condition.Type == "cron" {
 		cronCondition := &condition.Cron{}
 		cronCondition.Configure(spec.Condition.Config)
+
 		svc.CronConditions = append(svc.CronConditions, cronCondition)
 	} else if spec.Condition.Type == "file" {
 		fileCondition := &condition.File{}

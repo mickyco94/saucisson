@@ -12,9 +12,11 @@ type RawConfig struct {
 }
 
 type ServiceSpec struct {
-	Name      string        `yaml:"name"`
+	Name string `yaml:"name"`
+	//TODO: Take multiple conditions
 	Condition ComponentSpec `yaml:"condition"`
-	Execute   ComponentSpec `yaml:"execute"`
+	//TODO: Take multiple executors
+	Execute ComponentSpec `yaml:"execute"`
 }
 
 type ComponentSpec struct {

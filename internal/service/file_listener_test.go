@@ -1,139 +1,177 @@
 package service
 
-// func setup() (string, error) {
-// 	path, err := ioutil.TempDir("", "file_listener_test")
-// 	if err != nil {
-// 		return "", err
-// 	}
-// 	return path, nil
-// }
+import (
+	"context"
+	"io/ioutil"
+	"os"
+	"path"
+	"testing"
+	"time"
 
-// func TestWatchDirectoryForCreateOp(t *testing.T) {
-// 	basePath, err := setup()
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
-// 	listener := NewFileListener(context.Background(), logrus.New())
+	"github.com/mickyco94/saucisson/internal/condition"
+	"github.com/radovskyb/watcher"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+)
 
-// 	done := make(chan struct{})
+func setup() (string, error) {
+	path, err := ioutil.TempDir("", "file_listener_test")
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
 
-// 	err = listener.AddFunc(watcher.Create, basePath, false, func() {
-// 		done <- struct{}{}
-// 	})
+func TestWatchDirectoryForCreateOp(t *testing.T) {
+	basePath, err := setup()
+	if err != nil {
+		t.Error(err)
+	}
+	listener := NewFileListener(context.Background(), logrus.New())
 
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	done := make(chan struct{})
 
-// 	listener.Run(time.Millisecond * 100)
+	condition := &condition.File{
+		Path:      basePath,
+		Operation: watcher.Create,
+		Recursive: false,
+	}
 
-// 	err = ioutil.WriteFile(path.Join(basePath, "create.txt"), []byte("foo_bar"), 0644)
+	err = listener.HandleFunc(condition, func() {
+		done <- struct{}{}
+	})
 
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	if err != nil {
+		t.Error(err)
+	}
 
-// 	select {
-// 	case <-time.NewTimer(1 * time.Second).C:
-// 		t.Error("Timed out")
-// 	case <-done:
-// 		t.Logf("Handler invoked")
-// 	}
-// }
+	listener.Run(time.Millisecond * 100)
 
-// func TestWatchForRename(t *testing.T) {
-// 	//arrange
-// 	basePath, err := setup()
+	err = ioutil.WriteFile(path.Join(basePath, "create.txt"), []byte("foo_bar"), 0644)
 
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	if err != nil {
+		t.Error(err)
+	}
 
-// 	originalPath := path.Join(basePath, "rename.txt")
-// 	err = ioutil.WriteFile(originalPath, []byte("foo_bar"), 0644)
+	select {
+	case <-time.NewTimer(1 * time.Second).C:
+		t.Error("Timed out")
+	case <-done:
+		t.Logf("Handler invoked")
+	}
+}
 
-// 	listener := NewFileListener(context.Background(), logrus.New())
+func TestWatchForRename(t *testing.T) {
+	//arrange
+	basePath, err := setup()
 
-// 	done := make(chan struct{})
+	if err != nil {
+		t.Error(err)
+	}
 
-// 	err = listener.AddFunc(watcher.Rename, basePath, false, func() {
-// 		done <- struct{}{}
-// 	})
+	originalPath := path.Join(basePath, "rename.txt")
+	err = ioutil.WriteFile(originalPath, []byte("foo_bar"), 0644)
 
-// 	listener.Run(time.Millisecond * 100)
+	listener := NewFileListener(context.Background(), logrus.New())
 
-// 	//act
-// 	newPath := path.Join(basePath, "rename_new.txt")
+	done := make(chan struct{})
 
-// 	err = os.Rename(originalPath, newPath)
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	condition := &condition.File{
+		Path:      basePath,
+		Operation: watcher.Rename,
+		Recursive: false,
+	}
 
-// 	//assert
-// 	select {
-// 	case <-time.NewTimer(1 * time.Second).C:
-// 		t.Error("Timed out")
-// 	case <-done:
+	err = listener.HandleFunc(condition, func() {
+		done <- struct{}{}
+	})
 
-// 	}
-// }
+	listener.Run(time.Millisecond * 100)
 
-// func TestWatchCreateForExistingFileReturnsError(t *testing.T) {
-// 	//arrange
-// 	basePath, err := setup()
+	//act
+	newPath := path.Join(basePath, "rename_new.txt")
 
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	err = os.Rename(originalPath, newPath)
+	if err != nil {
+		t.Error(err)
+	}
 
-// 	filePath := path.Join(basePath, "exists.txt")
-// 	err = ioutil.WriteFile(filePath, []byte("foo_bar"), 0644)
+	//assert
+	select {
+	case <-time.NewTimer(1 * time.Second).C:
+		t.Error("Timed out")
+	case <-done:
 
-// 	listener := NewFileListener(context.Background(), logrus.New())
+	}
+}
 
-// 	err = listener.AddFunc(watcher.Create, filePath, false, func() {})
+func TestWatchCreateForExistingFileReturnsError(t *testing.T) {
+	//arrange
+	basePath, err := setup()
 
-// 	assert.Error(t, err, ErrWatchCreateExistingFile)
-// 	assert.Len(t, listener.entries, 0)
-// 	assert.Len(t, listener.watcher.WatchedFiles(), 0)
-// }
+	if err != nil {
+		t.Error(err)
+	}
 
-// func TestWatchFileRemoval(t *testing.T) {
-// 	//arrange
-// 	basePath, err := setup()
+	filePath := path.Join(basePath, "exists.txt")
+	err = ioutil.WriteFile(filePath, []byte("foo_bar"), 0644)
 
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	listener := NewFileListener(context.Background(), logrus.New())
 
-// 	filePath := path.Join(basePath, "delete_me.txt")
-// 	err = ioutil.WriteFile(filePath, []byte("foo_bar"), 0644)
+	condition := &condition.File{
+		Path:      filePath,
+		Operation: watcher.Create,
+		Recursive: false,
+	}
 
-// 	listener := NewFileListener(context.Background(), logrus.New())
+	err = listener.HandleFunc(condition, func() {})
 
-// 	done := make(chan struct{})
+	assert.Error(t, err, ErrWatchCreateExistingFile)
+	assert.Len(t, listener.entries, 0)
+	assert.Len(t, listener.watcher.WatchedFiles(), 0)
+}
 
-// 	err = listener.AddFunc(watcher.Remove, basePath, false, func() {
-// 		done <- struct{}{}
-// 	})
+func TestWatchFileRemoval(t *testing.T) {
+	//arrange
+	basePath, err := setup()
 
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	if err != nil {
+		t.Error(err)
+	}
 
-// 	listener.Run(time.Millisecond * 100)
+	filePath := path.Join(basePath, "delete_me.txt")
+	err = ioutil.WriteFile(filePath, []byte("foo_bar"), 0644)
 
-// 	//act
-// 	err = os.Remove(filePath)
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
+	listener := NewFileListener(context.Background(), logrus.New())
 
-// 	//assert
-// 	select {
-// 	case <-time.NewTimer(1 * time.Second).C:
-// 		t.Error("Timed out")
-// 	case <-done:
-// 	}
-// }
+	done := make(chan struct{})
+
+	condition := &condition.File{
+		Path:      basePath,
+		Operation: watcher.Remove,
+		Recursive: false,
+	}
+
+	err = listener.HandleFunc(condition, func() {
+		done <- struct{}{}
+	})
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	listener.Run(time.Millisecond * 100)
+
+	//act
+	err = os.Remove(filePath)
+	if err != nil {
+		t.Error(err)
+	}
+
+	//assert
+	select {
+	case <-time.NewTimer(1 * time.Second).C:
+		t.Error("Timed out")
+	case <-done:
+	}
+}

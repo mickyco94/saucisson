@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 )
 
 var (
-	ErrWatchCreateExistingFile = errors.New("error msg goes here")
+	ErrWatchCreateExistingFile = errors.New("Cannot watch for creation of a file that already exists")
 )
 
 func NewFileListener(
@@ -52,8 +53,14 @@ func (fl *FileListener) Stop() {
 }
 
 func (f *FileListener) HandleFunc(fileCondition *condition.File, observer func()) error {
-	//
-	err := f.watcher.Add(fileCondition.Path)
+
+	file, err := os.Stat(fileCondition.Path)
+
+	if file != nil && !file.IsDir() && fileCondition.Operation == filewatcher.Create {
+		return ErrWatchCreateExistingFile
+	}
+
+	err = f.watcher.Add(fileCondition.Path)
 
 	f.entries = append(f.entries, fileEntry{
 		path:      fileCondition.Path,
@@ -62,7 +69,6 @@ func (f *FileListener) HandleFunc(fileCondition *condition.File, observer func()
 		recursive: fileCondition.Recursive,
 	})
 
-	//There will be error cases in the future I think
 	return err
 }
 

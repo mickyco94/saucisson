@@ -5,6 +5,19 @@ import (
 	"sync"
 )
 
+//TODO: Need to decorate executor so that it runs on a shared
+//Executor pool, specifics of that idk. Using an interface seems gross
+//Passing a context object, maybe have a chan for each executor...?
+//Dictionary of channels...?
+
+//Channel for each service? Fan out to each executor?
+
+//Execution context type?
+
+//	type ExecutionContext struct {
+//		conditionContext any
+//		serviceName      string
+//	}
 type Pool struct {
 	runningMu sync.Mutex
 	wg        sync.WaitGroup
