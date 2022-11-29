@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/mickyco94/saucisson/internal/component"
 	filewatcher "github.com/radovskyb/watcher"
 	"github.com/sirupsen/logrus"
 )
@@ -27,8 +27,7 @@ func NewFileListener(
 	return &FileListener{
 		context: ctx,
 		logger:  logger,
-		watcher: filewatcher.New(),
-		entries: make([]fileEntry, 0),
+		watcher: watcher,
 	}
 }
 
@@ -43,8 +42,8 @@ type FileListener struct {
 	context context.Context
 	logger  logrus.FieldLogger
 
-	watcher *filewatcher.Watcher
 	entries []fileEntry
+	watcher *filewatcher.Watcher
 }
 
 func (fl *FileListener) Stop() {
@@ -52,49 +51,21 @@ func (fl *FileListener) Stop() {
 	close(fl.watcher.Event)
 }
 
-// Change to be a func (watcher.Event)
-// Entry can then just go back to being paths + funcs
-// Need to be careful that all matching
-// ! Could just have all funcs invoked for every event, condition is always checked...?
-func (fl *FileListener) AddFunc(op filewatcher.Op, path string, recursive bool, f func()) error {
+type FileFunc func()
 
-	var entry fileEntry
-	fileInfo, err := os.Stat(path)
+func (f *FileListener) HandleFunc(fileCondition *component.File, h FileFunc) error {
+	//
+	err := f.watcher.Add(fileCondition.Path)
 
-	if err == os.ErrNotExist {
+	f.entries = append(f.entries, fileEntry{
+		path:      fileCondition.Path,
+		op:        fileCondition.Operation,
+		h:         h,
+		recursive: fileCondition.Recursive,
+	})
 
-		//Try and get the dir
-		dir := filepath.Dir(path)
-		_, err := os.Open(dir)
-		if err != nil {
-			return err
-		}
-
-		entry = fileEntry{
-			path: dir,
-			op:   op,
-			h:    f,
-		}
-	} else if err != nil {
-		return err
-	} else if op == filewatcher.Create && !fileInfo.IsDir() {
-		return ErrWatchCreateExistingFile
-	}
-
-	entry = fileEntry{
-		path:      path,
-		op:        op,
-		h:         f,
-		recursive: recursive && fileInfo.IsDir(), //Cannot recursively watch a file
-	}
-
-	fl.entries = append(fl.entries, entry)
-
-	if entry.recursive {
-		return fl.watcher.AddRecursive(entry.path)
-	} else {
-		return fl.watcher.Add(entry.path)
-	}
+	//There will be error cases in the future I think
+	return err
 }
 
 func (entry fileEntry) matches(event filewatcher.Event) bool {
@@ -133,13 +104,9 @@ func (f *FileListener) Run(pollingInterval time.Duration) {
 					return
 				}
 
-				f.logger.
-					WithField("event", event).
-					Debug("Event")
-
-				for _, v := range f.entries {
-					if v.matches(event) {
-						v.h()
+				for _, entry := range f.entries {
+					if entry.matches(event) {
+						entry.h()
 					}
 				}
 

@@ -8,18 +8,13 @@ import (
 
 // RawConfig
 type RawConfig struct {
-	Services []struct {
+	Services []ServiceSpec
+}
 
-		//Name represents the friendly name for this service that can be
-		//used to query the state of this service by the end user
-		Name string `yaml:"name"`
-
-		//Condition holds the configuration options for all conditions
-		//of this service executing. If a condition is `nil` then it is ignored
-		//as a requirement.
-		Condition []ComponentSpec
-		Execute   []ComponentSpec
-	}
+type ServiceSpec struct {
+	Name      string        `yaml:"name"`
+	Condition ComponentSpec `yaml:"condition"`
+	Execute   ComponentSpec `yaml:"execute"`
 }
 
 type ComponentSpec struct {

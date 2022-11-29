@@ -1,46 +1,10 @@
 services:
   - name: "#1"
     condition:
-      - type: "cron"
-        config:
-          schedule: "* * * * * *"
+      type: "cron"
+      config:
+        schedule: "* * * * * *"
     execute:
-      - type: "shell"
-        config:
-          command: "echo yo"
-  - name: "#2"
-    condition:
-      - type: "cron"
-        config:
-          schedule: "* * * * * *"
-    execute:
-      - type: "shell"
-        config:
-          command: "echo yo"
-  - name: "#3"
-    condition:
-      - type: "cron"
-        config:
-          schedule: "* * * * * *"
-    execute:
-      - type: "shell"
-        config:
-          command: "echo yo"
-  - name: "#4"
-    condition:
-      - type: "cron"
-        config:
-          schedule: "* * * * * *"
-    execute:
-      - type: "shell"
-        config:
-          command: "echo yo"
-  - name: "#5"
-    condition:
-      - type: "cron"
-        config:
-          schedule: "* * * * * *"
-    execute:
-      - type: "shell"
-        config:
-          command: "echo yo"
+      type: "shell"
+      config:
+        command: "echo yo"

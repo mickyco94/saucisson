@@ -7,5 +7,8 @@ import (
 )
 
 func main() {
-	app.New(context.Background()).Run()
+	err := app.New(context.Background()).Run()
+	if err != nil {
+		panic(err)
+	}
 }

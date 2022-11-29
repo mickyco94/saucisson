@@ -27,14 +27,14 @@ func (sh *Shell) Configure(config yaml.Node) {
 	cfg := &ShellConfig{}
 	config.Decode(cfg)
 
-	sh.command = cfg.Command
+	sh.Command = cfg.Command
 }
 
 type Shell struct {
 	ctx    context.Context
 	logger logrus.FieldLogger
 
-	command string
+	Command string
 }
 
 func (shell *Shell) getShell() string {
@@ -54,7 +54,7 @@ func (shell *Shell) Execute() error {
 	sh := shell.getShell()
 
 	//We should wait until the command is done, with a maximum timeout
-	cmd, err := exec.CommandContext(shell.ctx, sh, "-c", escape(shell.command)).Output()
+	cmd, err := exec.CommandContext(shell.ctx, sh, "-c", escape(shell.Command)).Output()
 
 	if err != nil {
 		return err
@@ -64,7 +64,7 @@ func (shell *Shell) Execute() error {
 
 	shell.logger.
 		WithField("stdout", escape(stdout)).
-		WithField("input", escape(shell.command)).
+		WithField("input", escape(shell.Command)).
 		Info("Completed")
 
 	return nil
