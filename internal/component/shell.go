@@ -7,21 +7,27 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 )
-
-func (c *ShellConfig) FromConfig(ctx context.Context, logger logrus.FieldLogger) (*Shell, error) {
-	return NewShell(ctx, c.Command, logger), nil
-}
 
 func NewShell(
 	ctx context.Context,
-	command string,
 	logger logrus.FieldLogger) *Shell {
 	return &Shell{
-		ctx:     ctx,
-		logger:  logger,
-		command: command,
+		ctx:    ctx,
+		logger: logger,
 	}
+}
+
+type ShellConfig struct {
+	Command string `yaml:"command"`
+}
+
+func (sh *Shell) Configure(config yaml.Node) {
+	cfg := &ShellConfig{}
+	config.Decode(cfg)
+
+	sh.command = cfg.Command
 }
 
 type Shell struct {
@@ -63,8 +69,4 @@ func (shell *Shell) Execute() error {
 
 	return nil
 
-}
-
-type ShellConfig struct {
-	Command string `yaml:"command"`
 }

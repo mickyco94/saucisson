@@ -5,36 +5,34 @@ import (
 
 	"github.com/mickyco94/saucisson/internal/service"
 	filewatcher "github.com/radovskyb/watcher"
+	"gopkg.in/yaml.v3"
 )
 
-func (fileConfig *FileConfig) FromConfig(listener *service.FileListener) (*File, error) {
-	var op filewatcher.Op
-	switch fileConfig.Operation {
-	case "create":
-		op = filewatcher.Create
-	case "update":
-		op = filewatcher.Write
-	case "remove":
-		op = filewatcher.Remove
-	case "rename":
-		op = filewatcher.Rename
-	default:
-		return nil, errors.New("Unsupported operation")
-	}
+func (file *File) Configure(yaml yaml.Node) error {
+	fileconfig := &FileConfig{}
+	yaml.Decode(fileconfig)
 
-	return NewFile(fileConfig.Path, op, fileConfig.Recursive, listener), nil
+	switch fileconfig.Operation {
+	case "create":
+		file.op = filewatcher.Create
+	case "update":
+		file.op = filewatcher.Write
+	case "remove":
+		file.op = filewatcher.Remove
+	case "rename":
+		file.op = filewatcher.Rename
+	default:
+		return errors.New("Unsupported operation")
+	}
+	file.path = fileconfig.Path
+	file.recursive = fileconfig.Recursive
+	return nil
 }
 
 func NewFile(
-	path string,
-	op filewatcher.Op,
-	recursive bool,
 	listener *service.FileListener) *File {
 	return &File{
-		path:      path,
-		op:        op,
-		recursive: recursive,
-		parent:    listener,
+		parent: listener,
 	}
 }
 

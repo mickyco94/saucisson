@@ -2,15 +2,21 @@ package component
 
 import (
 	"github.com/robfig/cron/v3"
+	"gopkg.in/yaml.v3"
 )
 
-func NewCronCondition(
-	schedule string,
+func NewCron(
 	cron *cron.Cron) *CronCondition {
 	return &CronCondition{
-		schedule: schedule,
-		cron:     cron,
+		cron: cron,
 	}
+}
+
+func (c *CronCondition) Configure(config yaml.Node) {
+	cfg := &CronConfig{}
+	config.Decode(cfg)
+
+	c.schedule = cfg.Schedule
 }
 
 type CronCondition struct {
@@ -26,8 +32,4 @@ func (condition *CronCondition) Register(f func()) error {
 
 type CronConfig struct {
 	Schedule string `yaml:"schedule"`
-}
-
-func (c *CronConfig) FromConfig(cron *cron.Cron) (*CronCondition, error) {
-	return NewCronCondition(c.Schedule, cron), nil
 }

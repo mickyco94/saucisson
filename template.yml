@@ -1,19 +1,46 @@
 services:
-  - name: ping
+  - name: "#1"
     condition:
-      file:
-        operation: update
-        path: "/home/micky/dev/saucisson"
+      - type: "cron"
+        config:
+          schedule: "* * * * * *"
     execute:
-      shell:
-        command: |
-          "echo hello world"
-  - name: delete_test
+      - type: "shell"
+        config:
+          command: "echo yo"
+  - name: "#2"
     condition:
-      file:
-        operation: remove
-        path: "/home/micky/dev/saucisson/tests"
+      - type: "cron"
+        config:
+          schedule: "* * * * * *"
     execute:
-      shell:
-        command: |
-          "echo something got got"
+      - type: "shell"
+        config:
+          command: "echo yo"
+  - name: "#3"
+    condition:
+      - type: "cron"
+        config:
+          schedule: "* * * * * *"
+    execute:
+      - type: "shell"
+        config:
+          command: "echo yo"
+  - name: "#4"
+    condition:
+      - type: "cron"
+        config:
+          schedule: "* * * * * *"
+    execute:
+      - type: "shell"
+        config:
+          command: "echo yo"
+  - name: "#5"
+    condition:
+      - type: "cron"
+        config:
+          schedule: "* * * * * *"
+    execute:
+      - type: "shell"
+        config:
+          command: "echo yo"

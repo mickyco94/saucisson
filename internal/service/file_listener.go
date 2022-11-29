@@ -52,6 +52,10 @@ func (fl *FileListener) Stop() {
 	close(fl.watcher.Event)
 }
 
+// Change to be a func (watcher.Event)
+// Entry can then just go back to being paths + funcs
+// Need to be careful that all matching
+// ! Could just have all funcs invoked for every event, condition is always checked...?
 func (fl *FileListener) AddFunc(op filewatcher.Op, path string, recursive bool, f func()) error {
 
 	var entry fileEntry

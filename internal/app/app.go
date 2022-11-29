@@ -34,15 +34,31 @@ type svc struct {
 	logger    logrus.FieldLogger
 }
 
+func (s svc) Start(jobs chan<- *job) {
+	s.logger.Info("Registering")
+	err := s.condition.Register(func() {
+		jobs <- &job{
+			serviceName: s.name,
+			executor:    s.executor,
+		}
+	})
+
+	if err != nil {
+		s.logger.Error("Error registering: %v", err)
+	}
+}
+
 func NewService(
 	name string,
 	condition component.Condition,
-	executor component.Executor) *svc {
+	executor component.Executor,
+	logger logrus.FieldLogger) *svc {
 
 	return &svc{
 		name:      name,
 		condition: condition,
 		executor:  executor,
+		logger:    logger,
 	}
 }
 
@@ -113,6 +129,32 @@ func (a *App) spawnWorkers(workerCount int, jobs chan *job) {
 
 }
 
+func (a *App) ConditionFactory(spec parser.ComponentSpec) component.Condition {
+	if spec.Type == "file" {
+		file := component.NewFile(a.filelistener)
+
+		file.Configure(spec.Config)
+		return file
+	}
+	if spec.Type == "cron" {
+		cron := component.NewCron(a.cron)
+		cron.Configure(spec.Config)
+		return cron
+	}
+
+	return nil
+}
+
+func (a *App) ExecutorFactory(spec parser.ComponentSpec) component.Executor {
+	if spec.Type == "shell" {
+		shell := component.NewShell(a.context, a.logger)
+		shell.Configure(spec.Config)
+		return shell
+	}
+
+	return nil
+}
+
 func (app *App) Run() error {
 	file, err := os.Open("./template.yml")
 	if err != nil {
@@ -143,58 +185,19 @@ func (app *App) Run() error {
 		Services: make([]*svc, len(config.Services)),
 	}
 
-	//TODO: Move this elsewhere and test
 	for i, v := range config.Services {
-		var condition component.Condition
-		var executor component.Executor
 
-		//TODO: Support multiple conditions and executors
-		//This pattern doesn't really scale..
-		if v.Condition.Cron != nil {
-			condition, err = v.Condition.Cron.FromConfig(app.cron)
-			if err != nil {
-				return err
-			}
-		} else if v.Condition.File != nil {
-			condition, err = v.Condition.File.FromConfig(app.filelistener)
-			if err != nil {
-				return err
-			}
-		}
+		condition := app.ConditionFactory(v.Condition[0])
+		executor := app.ExecutorFactory(v.Execute[0])
 
-		if v.Execute.Shell != nil {
-			executor, err = v.Execute.Shell.FromConfig(app.context, app.logger)
-			if err != nil {
-				return err
-			}
-		}
-
-		serviceConfig := &svc{
-			name:      v.Name,
-			condition: condition,
-			executor:  executor,
-			logger:    app.logger.WithField("svc", v.Name),
-		}
+		serviceConfig := NewService(v.Name, condition, executor, app.logger)
 		runtimeConfig.Services[i] = serviceConfig
 	}
 
 	jobs := make(chan *job)
 
 	for _, s := range runtimeConfig.Services {
-		//Need to caputre s ref
-		func(s *svc) {
-			s.logger.Info("Registering")
-			err := s.condition.Register(func() {
-				jobs <- &job{
-					serviceName: s.name,
-					executor:    s.executor,
-				}
-			})
-
-			if err != nil {
-				s.logger.Error("Error registering: %v", err)
-			}
-		}(s)
+		s.Start(jobs)
 	}
 
 	//Start all the consumers

@@ -21,3 +21,6 @@ type Condition interface {
 	//Services register conditions, instead of the other way around
 	Register(func()) error
 }
+
+//Conditions are observers and cron, filelistener are both notifiers
+//When an observed condition is satisifed, run the corresponding executor
