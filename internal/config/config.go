@@ -1,4 +1,4 @@
-package condition
+package config
 
 type Condition string
 
@@ -15,6 +15,9 @@ var (
 	Update Operation = "update"
 	Remove Operation = "remove"
 	Rename Operation = "remove"
+
+	// Open  State = "open"
+	// Close State = "close"
 )
 
 type Cron struct {
@@ -27,13 +30,9 @@ type File struct {
 	Recursive bool      `yaml:"recursive"`
 }
 
+func (p *Process) Defaults() {}
+
 type Process struct {
-	Executable string
+	Executable string `yaml:"executable"`
+	State      string `yaml:"state"`
 }
-
-type State uint32
-
-const (
-	Open State = iota
-	Close
-)

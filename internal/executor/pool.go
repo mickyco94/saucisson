@@ -65,7 +65,6 @@ func (pool *Pool) Run() {
 			defer pool.wg.Done()
 
 			for j := range pool.jobs {
-				//TODO: Error handle
 				err := j.Executor.Execute()
 				if err != nil {
 					pool.logger.

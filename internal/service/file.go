@@ -9,30 +9,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mickyco94/saucisson/internal/condition"
+	"github.com/mickyco94/saucisson/internal/config"
 	filewatcher "github.com/radovskyb/watcher"
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	ErrWatchCreateExistingFile = errors.New("Cannot watch for creation of a file that already exists")
-)
+var ErrWatchCreateExistingFile = errors.New("Cannot watch for creation of a file that already exists")
 
-var operationMap = map[condition.Operation]filewatcher.Op{
-	condition.Create: filewatcher.Create,
-	condition.Remove: filewatcher.Remove,
-	condition.Rename: filewatcher.Rename,
-	condition.Update: filewatcher.Write,
+var operationMap = map[config.Operation]filewatcher.Op{
+	config.Create: filewatcher.Create,
+	config.Remove: filewatcher.Remove,
+	config.Rename: filewatcher.Rename,
+	config.Update: filewatcher.Write,
 }
 
-func NewFileListener(
+func NewFile(
 	ctx context.Context,
-	logger logrus.FieldLogger) *FileListener {
+	logger logrus.FieldLogger) *File {
 
 	watcher := filewatcher.New()
 	watcher.IgnoreHiddenFiles(false) //Decide this on a case by case basis
 
-	return &FileListener{
+	return &File{
 		context: ctx,
 		logger:  logger,
 		watcher: watcher,
@@ -46,7 +44,7 @@ type fileEntry struct {
 	recursive bool
 }
 
-type FileListener struct {
+type File struct {
 	context context.Context
 	logger  logrus.FieldLogger
 
@@ -54,12 +52,15 @@ type FileListener struct {
 	watcher *filewatcher.Watcher
 }
 
-func (fl *FileListener) Stop() {
+func (fl *File) Stop() {
 	fl.watcher.Close()
 	close(fl.watcher.Event)
 }
 
-func (f *FileListener) HandleFunc(fileCondition *condition.File, observer func()) error {
+// HandleFunc registers the provided function to be executed, when the provided
+// condition has been satisfied.
+// An error is returned if the provided condition is not logically complete
+func (f *File) HandleFunc(fileCondition *config.File, observer func()) error {
 
 	file, err := os.Stat(fileCondition.Path)
 
@@ -102,9 +103,10 @@ func (entry fileEntry) matches(event filewatcher.Event) bool {
 	return false
 }
 
-func (f *FileListener) Run(pollingInterval time.Duration) {
+func (f *File) Run(pollingInterval time.Duration) {
 
-	//TODO: error trap
+	//We can safely ignore err here as the only cases are if
+	//the watcher is already running or an invalid duration is set
 	go f.watcher.Start(100 * time.Millisecond)
 
 	go func() {

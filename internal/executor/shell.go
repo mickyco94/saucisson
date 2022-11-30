@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 )
 
 func NewShell(
@@ -19,22 +18,11 @@ func NewShell(
 	}
 }
 
-type ShellConfig struct {
-	Command string `yaml:"command"`
-}
-
-func (sh *Shell) Configure(config yaml.Node) {
-	cfg := &ShellConfig{}
-	config.Decode(cfg)
-
-	sh.Command = cfg.Command
-}
-
 type Shell struct {
 	ctx    context.Context
 	logger logrus.FieldLogger
 
-	Command string
+	Command string `yaml:"command"`
 }
 
 func (shell *Shell) getShell() string {

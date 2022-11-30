@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mickyco94/saucisson/internal/condition"
+	"github.com/mickyco94/saucisson/internal/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
@@ -26,13 +26,13 @@ func TestWatchDirectoryForCreateOp(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	listener := NewFileListener(context.Background(), logrus.New())
+	listener := NewFile(context.Background(), logrus.New())
 
 	done := make(chan struct{})
 
-	condition := &condition.File{
+	condition := &config.File{
 		Path:      basePath,
-		Operation: condition.Create,
+		Operation: config.Create,
 		Recursive: false,
 	}
 
@@ -71,13 +71,13 @@ func TestWatchForRename(t *testing.T) {
 	originalPath := path.Join(basePath, "rename.txt")
 	err = ioutil.WriteFile(originalPath, []byte("foo_bar"), 0644)
 
-	listener := NewFileListener(context.Background(), logrus.New())
+	listener := NewFile(context.Background(), logrus.New())
 
 	done := make(chan struct{})
 
-	condition := &condition.File{
+	condition := &config.File{
 		Path:      basePath,
-		Operation: condition.Rename,
+		Operation: config.Rename,
 		Recursive: false,
 	}
 
@@ -115,11 +115,11 @@ func TestWatchCreateForExistingFileReturnsError(t *testing.T) {
 	filePath := path.Join(basePath, "exists.txt")
 	err = ioutil.WriteFile(filePath, []byte("foo_bar"), 0644)
 
-	listener := NewFileListener(context.Background(), logrus.New())
+	listener := NewFile(context.Background(), logrus.New())
 
-	condition := &condition.File{
+	condition := &config.File{
 		Path:      filePath,
-		Operation: condition.Create,
+		Operation: config.Create,
 		Recursive: false,
 	}
 
@@ -141,13 +141,13 @@ func TestWatchFileRemoval(t *testing.T) {
 	filePath := path.Join(basePath, "delete_me.txt")
 	err = ioutil.WriteFile(filePath, []byte("foo_bar"), 0644)
 
-	listener := NewFileListener(context.Background(), logrus.New())
+	listener := NewFile(context.Background(), logrus.New())
 
 	done := make(chan struct{})
 
-	condition := &condition.File{
+	condition := &config.File{
 		Path:      basePath,
-		Operation: condition.Remove,
+		Operation: config.Remove,
 		Recursive: false,
 	}
 

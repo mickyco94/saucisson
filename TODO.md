@@ -9,3 +9,5 @@
 - Linter
 - Generator of templates
 - Move to client x server design a la Docker. Use unix sock
+
+- Change a lot of the keys so we can have multiple services on same condition. End user should have no need to understand impl details.
