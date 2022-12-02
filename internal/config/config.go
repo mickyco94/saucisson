@@ -30,8 +30,6 @@ type File struct {
 	Recursive bool      `yaml:"recursive"`
 }
 
-func (p *Process) Defaults() {}
-
 type Process struct {
 	Executable string `yaml:"executable"`
 	State      string `yaml:"state"`

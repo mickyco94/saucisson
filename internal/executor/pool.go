@@ -14,7 +14,7 @@ type Job struct {
 }
 
 // Pool represents a collection of workers that can be used
-// by `executor.Execute`
+// by `executor.Execute` to dispatch work
 type Pool struct {
 	runningMu sync.Mutex
 	running   bool

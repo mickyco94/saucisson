@@ -15,8 +15,10 @@ func (h hashset) add(key string) {
 
 type Process struct {
 	//This is a dict of processes to watch and executors to run
-	entries           map[string]processEntry
+	//The arr of entries will most likely always be of size one
+	entries           map[string][]processEntry
 	liteningForAClose hashset
+	watching          hashset
 }
 
 type processEntry struct {
@@ -27,8 +29,9 @@ type processEntry struct {
 
 func NewProcess() *Process {
 	return &Process{
-		entries:           make(map[string]processEntry),
+		entries:           make(map[string][]processEntry),
 		liteningForAClose: make(hashset),
+		watching:          make(hashset),
 	}
 }
 
@@ -39,27 +42,41 @@ func NewProcess() *Process {
 // The service defines the uniqueness, not some parameter
 func (p *Process) HandleFunc(config *config.Process, f func()) {
 	//Some validaiton may be nice :)
-	p.entries[config.Executable] = processEntry{
+	entry := processEntry{
 		listenFor: config.State,
 		isRunning: false, //TODO: This will be set on `Run()`
 		h:         f,
 	}
+
+	p.addEntry(config.Executable, entry)
+	p.watching.add(config.Executable)
 }
 
-func (entry *processEntry) SetRunning(isRunning bool) {
-	entry.isRunning = isRunning
+func (p *Process) addEntry(key string, entry processEntry) {
+	arr, exists := p.entries[key]
+	if !exists {
+		coll := []processEntry{entry}
+		p.entries[key] = coll
+	} else {
+		arr = append(arr, entry)
+		p.entries[key] = arr
+	}
 }
 
 func (p *Process) init() {
 	processes, _ := ps.Processes()
 	for _, v := range processes {
-		entry, exists := p.entries[v.Executable()]
-		if exists {
-			entry.isRunning = true
+		entries, exists := p.entries[v.Executable()]
 
-			if entry.listenFor == "close" {
-				p.liteningForAClose.add(v.Executable())
+		for _, entry := range entries {
+			if exists {
+				entry.isRunning = true
+
+				if entry.listenFor == "close" {
+					p.liteningForAClose.add(v.Executable())
+				}
 			}
+
 		}
 	}
 }
@@ -76,6 +93,11 @@ func (p *Process) Run() error {
 	p.init()
 
 	for {
+		if len(p.entries) == 0 {
+			//Skip if there is zero work to be done
+			continue
+		}
+
 		delayChan := time.NewTimer(100 * time.Millisecond).C
 
 		processes, err := ps.Processes()
@@ -89,49 +111,54 @@ func (p *Process) Run() error {
 		}
 
 		//Split reading and dispatching into two GRs...?
-		//To listen for the close event we need to account for misses
-		//Basically if entry hit count != entry count then something closed
-		//Not sure the most efficient way to account for this.
-
-		//Can probably have two different data structures for close vs. open events
-		//Use a hashset for holding processes that are open currently and listening for a close
-		//Create the hashset here, remove based on process.Executable(). Iterate over remaining
 
 		hs := make(hashset)
 
 		for k, v := range p.entries {
-			if v.listenFor == "close" && v.isRunning {
-				hs.add(k)
+			for _, e := range v {
+				if e.listenFor == "close" && e.isRunning {
+					hs.add(k)
+				}
 			}
 		}
 
+		//To allow having multiple keys we could just use an arr with
+		//with executable as a prop on the struct and match against it
+		//...
+		//We could have a hashset of what we are watching to minimise throughput
 		for _, process := range processes {
-			entry, watching := p.entries[process.Executable()]
+			entries, watching := p.entries[process.Executable()]
 
-			//? Separate the updating of state and checking of state :)
+			for i, entry := range entries {
+				if watching && !entry.isRunning && entry.listenFor == "open" {
+					entry.h()
+					//Update entry in place
+					entry.isRunning = true
+					entries[i] = entry
+					p.entries[process.Executable()] = entries
+				} else if watching && entry.isRunning && entry.listenFor == "close" {
+					delete(hs, process.Executable())
+				}
 
-			//If the process is running, we don't know it's running and the entry
-			//says to listen for a run. Then trigger
-			if watching && !entry.isRunning && entry.listenFor == "open" {
-				entry.h()
-				entry.SetRunning(true)
-				p.entries[process.Executable()] = entry
-			} else if watching && entry.isRunning && entry.listenFor == "close" {
-				delete(hs, process.Executable())
+				if !entry.isRunning {
+					entry.isRunning = true
+				}
+				p.entries[process.Executable()] = entries
 			}
 
-			if !entry.isRunning {
-				entry.SetRunning(true)
-			}
-			p.entries[process.Executable()] = entry
 		}
 
 		//Any elements of the hs that remain are closed
 		for k := range hs {
-			entry := p.entries[k]
-			entry.h()
-			entry.SetRunning(false)
-			p.entries[k] = entry
+			entries := p.entries[k]
+			for i, entry := range entries {
+				entry.h()
+				entry.isRunning = true
+
+				//Update the entry in place
+				entries[i] = entry
+				p.entries[k] = entries
+			}
 		}
 
 		//Wait for the delay

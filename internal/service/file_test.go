@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
@@ -173,4 +174,72 @@ func TestWatchFileRemoval(t *testing.T) {
 		t.Error("Timed out")
 	case <-done:
 	}
+}
+
+func TestMultipleWatchersForSomeFile(t *testing.T) {
+	//arrange
+	basePath, err := setup()
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	listener := NewFile(context.Background(), logrus.New())
+
+	handlerOne := make(chan struct{})
+	handlerTwo := make(chan struct{})
+	agg := mergeChans(handlerOne, handlerTwo)
+
+	condition := &config.File{
+		Path:      basePath,
+		Operation: config.Create,
+		Recursive: false,
+	}
+
+	err = listener.HandleFunc(condition, func() {
+		handlerOne <- struct{}{}
+	})
+
+	err = listener.HandleFunc(condition, func() {
+		handlerTwo <- struct{}{}
+	})
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	listener.Run(time.Millisecond * 100)
+
+	//act
+	err = ioutil.WriteFile(path.Join(basePath, "create.txt"), []byte("foo_bar"), 0644)
+	if err != nil {
+		t.Error(err)
+	}
+
+	//assert
+	select {
+	case <-time.NewTimer(1 * time.Second).C:
+		t.Error("Timed out")
+	case <-agg:
+	}
+}
+
+func mergeChans(cs ...<-chan struct{}) <-chan struct{} {
+	wg := sync.WaitGroup{}
+	agg := make(chan struct{})
+
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go func(c <-chan struct{}) {
+			for v := range c {
+				agg <- v
+			}
+			wg.Done()
+		}(c)
+	}
+	go func() {
+		wg.Wait()
+		close(agg)
+	}()
+	return agg
 }
