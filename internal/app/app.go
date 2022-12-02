@@ -60,19 +60,6 @@ func (app *App) Run(templatePath string) error {
 		return err
 	}
 
-	sh := executor.NewShell(app.context, app.logger)
-	sh.Command = "echo process started"
-
-	app.process.HandleFunc(&config.Process{
-		Executable: "top",
-		State:      "close",
-	}, func() {
-		app.pool.Enqueue(executor.Job{
-			Service:  "foo",
-			Executor: sh,
-		})
-	})
-
 	for _, s := range cfg.Services {
 		svc := app.construct(s)
 		queueJob := func() {

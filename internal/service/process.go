@@ -1,30 +1,45 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/config"
 	"github.com/mitchellh/go-ps"
 )
 
-type hashset map[string]struct{}
+// ? I could just give them all IDs :shrug:
+type hashset map[string]processEntry
 
-func (h hashset) add(key string) {
-	h[key] = struct{}{}
+func (hashset hashset) add(pe processEntry) {
+	hashset[pe.String()] = pe
+}
+
+func (hashset hashset) delete(pe processEntry) {
+	delete(hashset, pe.String())
+}
+
+func (hashset hashset) Contains(pe processEntry) bool {
+	_, exists := hashset[pe.String()]
+	return exists
+}
+
+func (pe processEntry) String() string {
+	//! Super wonky hash
+	return fmt.Sprintf("%v_%v_%v", pe.h, pe.isRunning, pe.listenFor)
 }
 
 type Process struct {
-	//This is a dict of processes to watch and executors to run
-	//The arr of entries will most likely always be of size one
 	entries           map[string][]processEntry
 	liteningForAClose hashset
 	watching          hashset
 }
 
 type processEntry struct {
-	listenFor string //Listen for an open or close
-	isRunning bool
-	h         func()
+	executable string
+	listenFor  string //Listen for an open or close
+	isRunning  bool
+	h          func()
 }
 
 func NewProcess() *Process {
@@ -43,13 +58,14 @@ func NewProcess() *Process {
 func (p *Process) HandleFunc(config *config.Process, f func()) {
 	//Some validaiton may be nice :)
 	entry := processEntry{
-		listenFor: config.State,
-		isRunning: false, //TODO: This will be set on `Run()`
-		h:         f,
+		executable: config.Executable,
+		listenFor:  config.State,
+		isRunning:  false, //TODO: This will be set on `Run()`
+		h:          f,
 	}
 
 	p.addEntry(config.Executable, entry)
-	p.watching.add(config.Executable)
+	p.watching.add(entry)
 }
 
 func (p *Process) addEntry(key string, entry processEntry) {
@@ -63,7 +79,16 @@ func (p *Process) addEntry(key string, entry processEntry) {
 	}
 }
 
-func (p *Process) init() {
+func (entry processEntry) startJob() {
+	go entry.h()
+}
+
+var PollingInterval = 100 * time.Millisecond
+
+// Let the client decide to run on its own GR
+func (p *Process) Run() error {
+
+	//Initial state
 	processes, _ := ps.Processes()
 	for _, v := range processes {
 		entries, exists := p.entries[v.Executable()]
@@ -72,33 +97,19 @@ func (p *Process) init() {
 			if exists {
 				entry.isRunning = true
 
-				if entry.listenFor == "close" {
-					p.liteningForAClose.add(v.Executable())
-				}
 			}
 
 		}
 	}
-}
-
-// Let the client decide to run on its own GR
-func (p *Process) Run() error {
-
-	//TODO: Get the initial state of the system at the time of running
-	//TODO: That acts as the base for open/close operations. Otherwise we run
-	//TODO: the executor as long as the process has been open. Need a more complex
-	//TODO: struct and probably an init like method that can be run if HandleFunc
-	//TODO: is called on a running process server
-
-	p.init()
 
 	for {
 		if len(p.entries) == 0 {
 			//Skip if there is zero work to be done
+			//Or return error..?
 			continue
 		}
 
-		delayChan := time.NewTimer(100 * time.Millisecond).C
+		timer := time.NewTimer(PollingInterval)
 
 		processes, err := ps.Processes()
 
@@ -114,10 +125,10 @@ func (p *Process) Run() error {
 
 		hs := make(hashset)
 
-		for k, v := range p.entries {
+		for _, v := range p.entries {
 			for _, e := range v {
 				if e.listenFor == "close" && e.isRunning {
-					hs.add(k)
+					hs.add(e)
 				}
 			}
 		}
@@ -127,41 +138,36 @@ func (p *Process) Run() error {
 		//...
 		//We could have a hashset of what we are watching to minimise throughput
 		for _, process := range processes {
-			entries, watching := p.entries[process.Executable()]
+			entries := p.entries[process.Executable()]
 
 			for i, entry := range entries {
-				if watching && !entry.isRunning && entry.listenFor == "open" {
-					entry.h()
-					//Update entry in place
-					entry.isRunning = true
-					entries[i] = entry
-					p.entries[process.Executable()] = entries
-				} else if watching && entry.isRunning && entry.listenFor == "close" {
-					delete(hs, process.Executable())
+				if !entry.isRunning && entry.listenFor == "open" {
+					entry.startJob()
+				} else if entry.isRunning && entry.listenFor == "close" {
+					hs.delete(entry)
 				}
 
 				if !entry.isRunning {
 					entry.isRunning = true
 				}
+
+				entries[i] = entry
 				p.entries[process.Executable()] = entries
 			}
-
 		}
 
 		//Any elements of the hs that remain are closed
-		for k := range hs {
-			entries := p.entries[k]
+		for _, k := range hs {
+			k.startJob()
+			entries := p.entries[k.executable]
 			for i, entry := range entries {
-				entry.h()
-				entry.isRunning = true
 
-				//Update the entry in place
+				entry.isRunning = false
 				entries[i] = entry
-				p.entries[k] = entries
+				p.entries[k.executable] = entries
 			}
 		}
 
-		//Wait for the delay
-		<-delayChan
+		<-timer.C
 	}
 }

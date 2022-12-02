@@ -1,19 +1,21 @@
 services:
-  - name: "#1"
+  - name: "open top"
     condition:
-      type: "cron"
+      type: "process"
       config:
-        schedule: "* * * * * *"
+        executable: "top"
+        state: "open"
     execute:
       type: "shell"
       config:
-        command: "echo yo"
-  - name: "#2"
+        command: "echo top opened"
+  - name: "close top"
     condition:
-      type: "cron"
+      type: "process"
       config:
-        schedule: "*/5 * * * * *"
+        executable: "top"
+        state: "close"
     execute:
       type: "shell"
       config:
-        command: "gooba"
+        command: "echo top closed"
