@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"runtime"
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/config"
@@ -13,8 +14,7 @@ import (
 )
 
 type App struct {
-	context context.Context
-	logger  logrus.FieldLogger
+	logger logrus.FieldLogger
 
 	cron    *service.Cron
 	file    *service.File
@@ -23,7 +23,7 @@ type App struct {
 	pool *executor.Pool
 }
 
-func New(ctx context.Context) *App {
+func New() *App {
 	formatter := &logrus.TextFormatter{
 		FullTimestamp: true,
 	}
@@ -34,18 +34,31 @@ func New(ctx context.Context) *App {
 	logger.SetLevel(logrus.DebugLevel)
 
 	return &App{
-		context: ctx,
-		pool:    executor.NewExecutorPool(logger, 10),
 		logger:  logger,
+		pool:    executor.NewExecutorPool(logger),
 		cron:    service.NewCron(),
-		process: service.NewProcess(),
-		file:    service.NewFile(ctx, logger),
+		process: service.NewProcess(logger),
+		file:    service.NewFile(logger),
 	}
 }
 
-func (app *App) Run(templatePath string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	app.listenForClose(cancel)
+func (app *App) debuggr() {
+	for {
+		timer := time.NewTimer(5 * time.Second)
+
+		app.logger.
+			WithField("gr_count", runtime.NumGoroutine()).
+			Debug("Debugging")
+
+		<-timer.C
+	}
+}
+
+func Run(templatePath string) error {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+
+	app := New()
 
 	file, err := os.Open(templatePath)
 	if err != nil {
@@ -55,6 +68,7 @@ func (app *App) Run(templatePath string) error {
 	cfg := &config.Raw{}
 
 	err = cfg.Parse(file)
+	go app.debuggr()
 
 	if err != nil {
 		return err
@@ -89,36 +103,57 @@ func (app *App) Run(templatePath string) error {
 		}
 	}
 
-	app.file.Run(time.Millisecond * 100)
+	fileProccessorClosedChan := make(chan struct{})
+
+	go func() {
+		err := app.file.Run(time.Millisecond * 100)
+		if err != nil {
+			app.logger.
+				WithError(err).
+				Error("File proccessor shutdown unexpectedly")
+			close(fileProccessorClosedChan)
+		}
+	}()
+
 	app.cron.Start()
 	app.pool.Run()
+
 	processRunnerClosedChan := make(chan struct{})
 	go func() {
 		err := app.process.Run()
 		if err != nil {
 			close(processRunnerClosedChan)
 		}
-
 	}()
 
+	//TODO: Debug log each of these cases
 	select {
-	case <-ctx.Done():
+	case <-fileProccessorClosedChan:
+	case <-sig:
 	case <-processRunnerClosedChan:
 	}
-	app.cron.Stop()
-	app.file.Stop()
-	app.pool.Stop()
+
+	defer func() {
+		timer := time.AfterFunc(5*time.Second, func() {
+			app.logger.Error("Forcefully shutting down")
+			os.Exit(0)
+		})
+
+		cronSdown := make(chan struct{})
+		go func() {
+			app.cron.Stop()
+			cronSdown <- struct{}{}
+		}()
+		app.cron.Stop()
+		app.file.Stop()
+		app.pool.Stop()
+		app.process.Stop()
+		app.logger.Debug("Exited gracefully")
+
+		timer.Stop()
+	}()
 
 	return nil
-}
-
-func (app *App) listenForClose(cancel context.CancelFunc) {
-	go func() {
-		sig := make(chan os.Signal)
-		signal.Notify(sig, os.Interrupt)
-		<-sig
-		cancel()
-	}()
 }
 
 // definition can have any number of conditions of different types
@@ -158,7 +193,9 @@ func (app *App) construct(spec config.ServiceSpec) *definition {
 
 	switch spec.Execute.Type {
 	case "shell":
-		shell := executor.NewShell(app.context, app.logger)
+		//TODO: The context here should come from the executor pool
+		//Probably not a func of the object. But of the `Execute()` method.
+		shell := executor.NewShell(context.TODO(), app.logger)
 		spec.Execute.Config.Decode(shell)
 		svc.executor = shell
 	}

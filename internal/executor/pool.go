@@ -26,9 +26,11 @@ type Pool struct {
 	jobs chan Job
 }
 
-func NewExecutorPool(logger logrus.FieldLogger, size int) *Pool {
+var DefaultPoolSize = 15
+
+func NewExecutorPool(logger logrus.FieldLogger) *Pool {
 	return &Pool{
-		size:      size,
+		size:      DefaultPoolSize,
 		wg:        sync.WaitGroup{},
 		running:   false,
 		runningMu: sync.Mutex{},
@@ -62,14 +64,16 @@ func (pool *Pool) Run() {
 
 	for i := 0; i < pool.size; i++ {
 		go func() {
-			defer pool.wg.Done()
+			defer func() {
+				pool.wg.Done()
+			}()
 
-			for j := range pool.jobs {
-				err := j.Executor.Execute()
+			for job := range pool.jobs {
+				err := job.Executor.Execute()
 				if err != nil {
 					pool.logger.
 						WithError(err).
-						WithField("svc", j.Service).
+						WithField("svc", job.Service).
 						Error("Execution failed")
 				}
 			}

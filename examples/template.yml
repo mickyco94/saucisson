@@ -18,4 +18,5 @@ services:
     execute:
       type: "shell"
       config:
+        shell: "bash"
         command: "echo top closed"

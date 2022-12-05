@@ -6,7 +6,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Raw
 type Raw struct {
 	Services []ServiceSpec `yaml:"services"`
 }

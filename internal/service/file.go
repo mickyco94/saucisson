@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"errors"
 	"log"
 	"os"
@@ -23,15 +22,12 @@ var operationMap = map[config.Operation]filewatcher.Op{
 	config.Update: filewatcher.Write,
 }
 
-func NewFile(
-	ctx context.Context,
-	logger logrus.FieldLogger) *File {
+func NewFile(logger logrus.FieldLogger) *File {
 
 	watcher := filewatcher.New()
 	watcher.IgnoreHiddenFiles(false) //Decide this on a case by case basis
 
 	return &File{
-		context: ctx,
 		logger:  logger,
 		watcher: watcher,
 	}
@@ -45,8 +41,10 @@ type fileEntry struct {
 }
 
 type File struct {
-	context context.Context
-	logger  logrus.FieldLogger
+	close chan struct{}
+	done  chan struct{}
+
+	logger logrus.FieldLogger
 
 	entries []fileEntry
 	watcher *filewatcher.Watcher
@@ -54,7 +52,8 @@ type File struct {
 
 func (fl *File) Stop() {
 	fl.watcher.Close()
-	close(fl.watcher.Event)
+	fl.close <- struct{}{}
+	<-fl.done
 }
 
 // HandleFunc registers the provided function to be executed, when the provided
@@ -103,17 +102,14 @@ func (entry fileEntry) matches(event filewatcher.Event) bool {
 	return false
 }
 
-func (f *File) Run(pollingInterval time.Duration) {
-
-	//We can safely ignore err here as the only cases are if
-	//the watcher is already running or an invalid duration is set
-	go f.watcher.Start(100 * time.Millisecond)
+func (f *File) Run(pollingInterval time.Duration) error {
 
 	go func() {
 		for {
 			select {
-			case <-f.context.Done():
-				return
+			case <-f.close:
+				f.logger.Debug("Shutting down file service")
+				f.done <- struct{}{}
 			case event, ok := <-f.watcher.Event:
 				if !ok {
 					return
@@ -133,4 +129,6 @@ func (f *File) Run(pollingInterval time.Duration) {
 			}
 		}
 	}()
+
+	return f.watcher.Start(pollingInterval)
 }

@@ -22,10 +22,15 @@ type Shell struct {
 	ctx    context.Context
 	logger logrus.FieldLogger
 
+	Shell   string `yaml:"shell"`
 	Command string `yaml:"command"`
 }
 
 func (shell *Shell) getShell() string {
+	if shell.Shell != "" {
+		return shell.Shell
+	}
+
 	val, exists := os.LookupEnv("SHELL")
 	if !exists {
 		return "bash" //? Make the aggressive assumption that they have bash

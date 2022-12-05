@@ -14,10 +14,7 @@ var (
 	Create Operation = "create"
 	Update Operation = "update"
 	Remove Operation = "remove"
-	Rename Operation = "remove"
-
-	// Open  State = "open"
-	// Close State = "close"
+	Rename Operation = "rename"
 )
 
 type Cron struct {
@@ -30,7 +27,14 @@ type File struct {
 	Recursive bool      `yaml:"recursive"`
 }
 
+type State string
+
+var (
+	Open  State = "open"
+	Close State = "close"
+)
+
 type Process struct {
 	Executable string `yaml:"executable"`
-	State      string `yaml:"state"`
+	State      State  `yaml:"state"`
 }
