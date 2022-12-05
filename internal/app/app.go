@@ -19,8 +19,7 @@ type App struct {
 	cron    *service.Cron
 	file    *service.File
 	process *service.Process
-
-	pool *executor.Pool
+	pool    *executor.Pool
 }
 
 func New() *App {
@@ -115,7 +114,7 @@ func Run(templatePath string) error {
 		}
 	}()
 
-	app.cron.Start()
+	go app.cron.Run()
 	app.pool.Run()
 
 	processRunnerClosedChan := make(chan struct{})
@@ -126,34 +125,32 @@ func Run(templatePath string) error {
 		}
 	}()
 
-	//TODO: Debug log each of these cases
+	defer app.shutdown()
+
 	select {
 	case <-fileProccessorClosedChan:
+		app.logger.Error("File service failed unexpectedly, shutting down")
 	case <-sig:
+		app.logger.Debug("Received SIGINT, shutting down")
 	case <-processRunnerClosedChan:
+		app.logger.Error("Process service failed unexpectedly, shutting down")
 	}
 
-	defer func() {
-		timer := time.AfterFunc(5*time.Second, func() {
-			app.logger.Error("Forcefully shutting down")
-			os.Exit(0)
-		})
-
-		cronSdown := make(chan struct{})
-		go func() {
-			app.cron.Stop()
-			cronSdown <- struct{}{}
-		}()
-		app.cron.Stop()
-		app.file.Stop()
-		app.pool.Stop()
-		app.process.Stop()
-		app.logger.Debug("Exited gracefully")
-
-		timer.Stop()
-	}()
-
 	return nil
+}
+
+func (app *App) shutdown() {
+	timer := time.AfterFunc(5*time.Second, func() {
+		app.logger.Warn("Forcefully shutting down")
+		os.Exit(0)
+	})
+
+	app.cron.Stop()
+	app.file.Stop()
+	app.pool.Stop()
+	app.process.Stop()
+
+	timer.Stop()
 }
 
 // definition can have any number of conditions of different types

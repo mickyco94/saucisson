@@ -22,7 +22,6 @@ func (cron *Cron) HandleFunc(condition *config.Cron, observer func()) {
 	cron.inner.AddFunc(condition.Schedule, observer)
 }
 
-// TODO: Homogenise interfaces, Start/Run blocking or not etc.
-func (cron *Cron) Start() { cron.inner.Start() }
+func (cron *Cron) Run() { cron.inner.Run() }
 
 func (cron *Cron) Stop() { cron.inner.Stop() }

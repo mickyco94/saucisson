@@ -82,6 +82,6 @@ func (pool *Pool) Run() {
 }
 
 // Enqueue adds the execution to the queue
-func (pool *Pool) Enqueue(j Job) {
-	pool.jobs <- j
+func (pool *Pool) Enqueue(job Job) {
+	pool.jobs <- job
 }

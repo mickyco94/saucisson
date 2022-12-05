@@ -51,9 +51,9 @@ type File struct {
 }
 
 func (fl *File) Stop() {
-	fl.watcher.Close()
-	fl.close <- struct{}{}
-	<-fl.done
+	// fl.watcher.Close()
+	// fl.close <- struct{}{}
+	// <-fl.done
 }
 
 // HandleFunc registers the provided function to be executed, when the provided
@@ -105,13 +105,18 @@ func (entry fileEntry) matches(event filewatcher.Event) bool {
 func (f *File) Run(pollingInterval time.Duration) error {
 
 	go func() {
+		defer func() {
+			f.done <- struct{}{}
+		}()
+
 		for {
 			select {
 			case <-f.close:
 				f.logger.Debug("Shutting down file service")
-				f.done <- struct{}{}
+				return
 			case event, ok := <-f.watcher.Event:
 				if !ok {
+					f.logger.Debug("No more events :(")
 					return
 				}
 
