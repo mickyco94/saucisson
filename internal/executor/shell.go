@@ -42,6 +42,7 @@ func escape(input string) string {
 	return strings.Replace(input, "\"", "", -1)
 }
 
+// TODO: Context here should come from what calls execute
 func (shell *Shell) Execute() error {
 
 	sh := shell.getShell()
@@ -57,6 +58,7 @@ func (shell *Shell) Execute() error {
 
 	shell.logger.
 		WithField("stdout", escape(stdout)).
+		WithField("shell", sh).
 		WithField("input", escape(shell.Command)).
 		Info("Completed")
 

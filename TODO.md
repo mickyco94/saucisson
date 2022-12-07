@@ -13,3 +13,4 @@
 [] Split file and dir into two separate services(?)
 [] context vs. channels + start/stop methods. HTTP Server as a basis. Not sure that I need a context at all. We want all services to shutdown gracefully, not just cancel what is currently in progress.
 [] context should be propagated to executors, they should be cancelled.
+[] Interpret `~` as $HOME globally

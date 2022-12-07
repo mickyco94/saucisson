@@ -127,6 +127,9 @@ func TestOpenWhenAlreadyOpen(t *testing.T) {
 	assert.Len(t, called, 0)
 }
 
+// TODO: Randomly fails, probably because of the "mocking"
+// Splitting the polling and consuming over channels might work...
+// Running proccesses chan...? that is the hashset?
 func TestOpenAndClose(t *testing.T) {
 	opened := make(chan struct{})
 	closed := make(chan struct{})

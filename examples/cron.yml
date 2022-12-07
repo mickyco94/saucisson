@@ -1,0 +1,11 @@
+services:
+  - name: cron
+    condition:
+      type: cron
+      config:
+        schedule: "*/10 * * * * *"
+    execute:
+      type: shell
+      config:
+        shell: bash
+        command: echo schedule triggered

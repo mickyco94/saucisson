@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"runtime"
+	"sync"
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/config"
@@ -41,18 +41,6 @@ func New() *App {
 	}
 }
 
-func (app *App) debuggr() {
-	for {
-		timer := time.NewTimer(5 * time.Second)
-
-		app.logger.
-			WithField("gr_count", runtime.NumGoroutine()).
-			Debug("Debugging")
-
-		<-timer.C
-	}
-}
-
 func Run(templatePath string) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
@@ -67,7 +55,6 @@ func Run(templatePath string) error {
 	cfg := &config.Raw{}
 
 	err = cfg.Parse(file)
-	go app.debuggr()
 
 	if err != nil {
 		return err
@@ -139,18 +126,60 @@ func Run(templatePath string) error {
 	return nil
 }
 
+var shutdownDelay = time.Second * 5
+
 func (app *App) shutdown() {
-	timer := time.AfterFunc(5*time.Second, func() {
-		app.logger.Warn("Forcefully shutting down")
-		os.Exit(0)
-	})
+	wg := &sync.WaitGroup{}
 
-	app.cron.Stop()
-	app.file.Stop()
-	app.pool.Stop()
-	app.process.Stop()
+	go func() {
+		defer wg.Done()
+		wg.Add(1)
 
-	timer.Stop()
+		timer := time.AfterFunc(shutdownDelay, func() {
+			app.logger.Error("Failed to stop file watcher on shutdown")
+			os.Exit(1)
+		})
+		app.file.Stop()
+		timer.Stop()
+	}()
+
+	go func() {
+		defer wg.Done()
+		wg.Add(1)
+
+		timer := time.AfterFunc(shutdownDelay, func() {
+			app.logger.Error("Failed to stop cron scheduler on shutdown")
+			os.Exit(1)
+		})
+		app.cron.Stop()
+		timer.Stop()
+	}()
+
+	go func() {
+		defer wg.Done()
+		wg.Add(1)
+
+		timer := time.AfterFunc(shutdownDelay, func() {
+			app.logger.Error("Failed to stop process watcher on shutdown")
+			os.Exit(1)
+		})
+		app.process.Stop()
+		timer.Stop()
+	}()
+
+	go func() {
+		defer wg.Done()
+		wg.Add(1)
+
+		timer := time.AfterFunc(shutdownDelay, func() {
+			app.logger.Error("Failed to terminate executing processes on shutdown")
+			os.Exit(1)
+		})
+		app.pool.Stop()
+		timer.Stop()
+	}()
+
+	wg.Wait()
 }
 
 // definition can have any number of conditions of different types

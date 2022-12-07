@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/config"
@@ -25,24 +24,31 @@ var operationMap = map[config.Operation]filewatcher.Op{
 func NewFile(logger logrus.FieldLogger) *File {
 
 	watcher := filewatcher.New()
-	watcher.IgnoreHiddenFiles(false) //Decide this on a case by case basis
+	watcher.IgnoreHiddenFiles(false)
 
 	return &File{
-		logger:  logger,
-		watcher: watcher,
+		isRunning: false,
+		logger:    logger,
+		watcher:   watcher,
 	}
 }
 
 type fileEntry struct {
-	path      string
-	op        filewatcher.Op
-	h         func()
-	recursive bool
+	//path is the full path of the file/directory being watched
+	path string
+	//dir is set to true if the specified entry is a watch for a directory
+	dir bool
+	//op is the type of operations we are listening for
+	op filewatcher.Op
+	//handler will be executed when a match is found
+	handler func()
 }
 
 type File struct {
-	close chan struct{}
-	done  chan struct{}
+	//TODO: Protect against multiple starts
+	isRunning bool
+	close     chan struct{}
+	done      chan struct{}
 
 	logger logrus.FieldLogger
 
@@ -50,10 +56,15 @@ type File struct {
 	watcher *filewatcher.Watcher
 }
 
-func (fl *File) Stop() {
-	// fl.watcher.Close()
-	// fl.close <- struct{}{}
-	// <-fl.done
+func (file *File) Stop() {
+	//mutex?
+	// if !file.isRunning {
+	// 	return
+	// }
+	//Closing the watcher is probably enough...?
+	file.watcher.Close()
+	file.close <- struct{}{}
+	<-file.done
 }
 
 // HandleFunc registers the provided function to be executed, when the provided
@@ -71,14 +82,18 @@ func (f *File) HandleFunc(fileCondition *config.File, observer func()) error {
 
 	err = f.watcher.Add(fileCondition.Path)
 
+	if err != nil {
+		return err
+	}
+
 	f.entries = append(f.entries, fileEntry{
-		path:      fileCondition.Path,
-		op:        operationMap[fileCondition.Operation],
-		h:         observer,
-		recursive: fileCondition.Recursive,
+		path:    fileCondition.Path,
+		dir:     file.IsDir(),
+		op:      operationMap[fileCondition.Operation],
+		handler: observer,
 	})
 
-	return err
+	return nil
 }
 
 func (entry fileEntry) matches(event filewatcher.Event) bool {
@@ -90,43 +105,49 @@ func (entry fileEntry) matches(event filewatcher.Event) bool {
 		return true
 	}
 
-	//This is allowing reads one dir up
-	if entry.path == filepath.Dir(event.Path) {
+	if entry.op == filewatcher.Rename && event.OldPath == entry.path {
 		return true
 	}
 
-	if entry.recursive && strings.Contains(event.Path, entry.path) {
+	if entry.dir && entry.path == filepath.Dir(event.Path) {
 		return true
 	}
 
 	return false
 }
 
-func (f *File) Run(pollingInterval time.Duration) error {
+func (file *File) Run(pollingInterval time.Duration) error {
+
+	//mutex?
+	//Already running
+	if file.isRunning {
+		return nil
+	}
+
+	file.isRunning = true
 
 	go func() {
 		defer func() {
-			f.done <- struct{}{}
+			file.logger.Debug("Shutting down file service")
+			file.done <- struct{}{}
 		}()
 
 		for {
 			select {
-			case <-f.close:
-				f.logger.Debug("Shutting down file service")
+			case <-file.close:
 				return
-			case event, ok := <-f.watcher.Event:
+			case event, ok := <-file.watcher.Event:
 				if !ok {
-					f.logger.Debug("No more events :(")
 					return
 				}
 
-				for _, entry := range f.entries {
+				for _, entry := range file.entries {
 					if entry.matches(event) {
-						entry.h()
+						entry.handler()
 					}
 				}
 
-			case err, ok := <-f.watcher.Error:
+			case err, ok := <-file.watcher.Error:
 				if !ok {
 					return
 				}
@@ -135,5 +156,5 @@ func (f *File) Run(pollingInterval time.Duration) error {
 		}
 	}()
 
-	return f.watcher.Start(pollingInterval)
+	return file.watcher.Start(pollingInterval)
 }

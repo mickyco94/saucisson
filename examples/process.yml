@@ -1,0 +1,22 @@
+services:
+  - name: open top
+    condition:
+      type: process
+      config:
+        executable: top
+        state: open
+    execute:
+      type: shell
+      config:
+        command: echo top opened
+  - name: close top
+    condition:
+      type: process
+      config:
+        executable: top
+        state: close
+    execute:
+      type: shell
+      config:
+        shell: bash
+        command: echo top closed

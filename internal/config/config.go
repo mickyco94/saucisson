@@ -24,7 +24,6 @@ type Cron struct {
 type File struct {
 	Operation Operation `yaml:"operation"`
 	Path      string    `yaml:"path"`
-	Recursive bool      `yaml:"recursive"`
 }
 
 type State string

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/config"
+	filewatcher "github.com/radovskyb/watcher"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
@@ -40,7 +41,6 @@ func TestDirectory(t *testing.T) {
 	condition := &config.File{
 		Path:      basePath,
 		Operation: config.Create,
-		Recursive: false,
 	}
 
 	listener.HandleFunc(condition, func() {
@@ -70,7 +70,6 @@ func TestRename(t *testing.T) {
 	condition := &config.File{
 		Path:      basePath,
 		Operation: config.Rename,
-		Recursive: false,
 	}
 
 	listener.HandleFunc(condition, func() {
@@ -101,7 +100,6 @@ func TestFileAlreadyExists(t *testing.T) {
 	condition := &config.File{
 		Path:      filePath,
 		Operation: config.Create,
-		Recursive: false,
 	}
 
 	err := listener.HandleFunc(condition, func() {})
@@ -121,7 +119,6 @@ func TestRemoval(t *testing.T) {
 	condition := &config.File{
 		Path:      basePath,
 		Operation: config.Remove,
-		Recursive: false,
 	}
 
 	listener.HandleFunc(condition, func() {
@@ -155,7 +152,6 @@ func TestMultipleWatchersForSameFile(t *testing.T) {
 	condition := &config.File{
 		Path:      basePath,
 		Operation: config.Create,
-		Recursive: false,
 	}
 
 	listener.HandleFunc(condition, func() {
@@ -180,5 +176,58 @@ func TestMultipleWatchersForSameFile(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Error("timeout")
 	case <-two:
+	}
+}
+
+func TestMatches(t *testing.T) {
+	type testCase struct {
+		Event   filewatcher.Event
+		Entry   fileEntry
+		Matches bool
+	}
+
+	testCases := []testCase{
+		{
+			Event: filewatcher.Event{
+				Op:   filewatcher.Create,
+				Path: "/home/file.txt",
+			},
+			Entry: fileEntry{
+				path: "/home",
+				dir:  true,
+				op:   filewatcher.Create,
+			},
+			Matches: true,
+		},
+		{
+			Event: filewatcher.Event{
+				Op:   filewatcher.Create,
+				Path: "/home/sub/file.txt",
+			},
+			Entry: fileEntry{
+				path: "/home",
+				dir:  true,
+				op:   filewatcher.Create,
+			},
+			Matches: false,
+		},
+		{
+			Event: filewatcher.Event{
+				Op:      filewatcher.Rename,
+				Path:    "/home/new.txt",
+				OldPath: "/home/old.txt",
+			},
+			Entry: fileEntry{
+				path: "/home/old.txt",
+				dir:  true,
+				op:   filewatcher.Rename,
+			},
+			Matches: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		result := testCase.Entry.matches(testCase.Event)
+		assert.Equal(t, result, testCase.Matches)
 	}
 }

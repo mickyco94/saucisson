@@ -128,7 +128,6 @@ func (p *Process) Run() error {
 	for {
 		select {
 		case <-p.close:
-			p.logger.Debug("Closing process poller")
 			p.done <- struct{}{}
 			return nil
 		case <-time.After(pollingInterval):

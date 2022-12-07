@@ -1,0 +1,31 @@
+services:
+  - name: file_update
+    condition:
+      type: file
+      config:
+        operation: update
+        path: /home/micky/dev/saucisson/TODO.md
+    execute:
+      type: shell
+      config:
+        command: echo new todos!
+  - name: dir_watch
+    condition:
+      type: file
+      config:
+        operation: create
+        path: /home/micky/dev/saucisson
+    execute:
+      type: shell
+      config:
+        command: echo something added to the repo!
+  - name: dir_delete_watch
+    condition:
+      type: file
+      config:
+        operation: remove
+        path: /home/micky/dev/saucisson
+    execute:
+      type: shell
+      config:
+        command: echo something removed from the repo!
