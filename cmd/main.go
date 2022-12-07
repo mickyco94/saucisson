@@ -10,6 +10,7 @@ import (
 )
 
 func main() {
+
 	app := &cli.App{
 		Name:  "saucisson",
 		Usage: "Do X when Y",

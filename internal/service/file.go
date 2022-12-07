@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/config"
@@ -27,6 +28,7 @@ func NewFile(logger logrus.FieldLogger) *File {
 	watcher.IgnoreHiddenFiles(false)
 
 	return &File{
+		runningMu: sync.Mutex{},
 		isRunning: false,
 		logger:    logger,
 		watcher:   watcher,
@@ -45,7 +47,7 @@ type fileEntry struct {
 }
 
 type File struct {
-	//TODO: Protect against multiple starts
+	runningMu sync.Mutex
 	isRunning bool
 	close     chan struct{}
 	done      chan struct{}
@@ -57,11 +59,13 @@ type File struct {
 }
 
 func (file *File) Stop() {
-	//mutex?
-	// if !file.isRunning {
-	// 	return
-	// }
-	//Closing the watcher is probably enough...?
+	file.runningMu.Lock()
+	defer file.runningMu.Unlock()
+
+	if !file.isRunning {
+		return
+	}
+
 	file.watcher.Close()
 	file.close <- struct{}{}
 	<-file.done
@@ -117,14 +121,12 @@ func (entry fileEntry) matches(event filewatcher.Event) bool {
 }
 
 func (file *File) Run(pollingInterval time.Duration) error {
+	file.runningMu.Lock()
 
-	//mutex?
-	//Already running
 	if file.isRunning {
-		return nil
+		file.runningMu.Unlock()
+		return errors.New("Already running")
 	}
-
-	file.isRunning = true
 
 	go func() {
 		defer func() {
@@ -155,6 +157,9 @@ func (file *File) Run(pollingInterval time.Duration) error {
 			}
 		}
 	}()
+
+	file.isRunning = true
+	file.runningMu.Unlock()
 
 	return file.watcher.Start(pollingInterval)
 }

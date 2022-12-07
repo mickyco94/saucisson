@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sync"
 	"time"
 
 	"github.com/mickyco94/saucisson/internal/config"
@@ -16,13 +17,17 @@ const (
 	Close
 )
 
+type Processes func() ([]ps.Process, error)
+
 type Process struct {
+	source Processes
+
 	logger logrus.FieldLogger
 
-	done  chan struct{}
-	close chan struct{}
-	//TODO: Expand/set this and protect
-	running bool
+	runningMu sync.Mutex
+	done      chan struct{}
+	close     chan struct{}
+	running   bool
 
 	entries  []processEntry
 	watching map[string]struct{}
@@ -37,12 +42,14 @@ type processEntry struct {
 
 func NewProcess(logger logrus.FieldLogger) *Process {
 	return &Process{
-		logger:   logger,
-		done:     make(chan struct{}),
-		close:    make(chan struct{}),
-		running:  false,
-		entries:  make([]processEntry, 0),
-		watching: make(map[string]struct{}),
+		source:    ps.Processes,
+		logger:    logger,
+		runningMu: sync.Mutex{},
+		done:      make(chan struct{}),
+		close:     make(chan struct{}),
+		running:   false,
+		entries:   make([]processEntry, 0),
+		watching:  make(map[string]struct{}),
 	}
 }
 
@@ -69,13 +76,12 @@ func (entry processEntry) startJob() {
 }
 
 // Setting Processes as a func here allows it to be mocked for testing.
-var Processes func() ([]ps.Process, error) = ps.Processes
 
 func (p *Process) processes() ([]ps.Process, error) {
 	backoff := 1
 
 	for {
-		proccess, err := Processes()
+		proccess, err := p.source()
 		if err == nil {
 			return proccess, nil
 		}
@@ -97,10 +103,14 @@ func (p *Process) processes() ([]ps.Process, error) {
 var pollingInterval = 100 * time.Millisecond
 
 func (p *Process) Run() error {
-
+	p.runningMu.Lock()
 	if p.running {
+		p.runningMu.Unlock()
 		return nil
 	}
+
+	p.running = true
+	p.runningMu.Unlock()
 
 	//Set initial state
 	processes, err := p.processes()
@@ -170,8 +180,14 @@ func (p *Process) Run() error {
 
 // Stop signals to the main goroutine to halt processing and exit
 // this method also waits for the main goroutine to signal that
-// it has successfully closed
+// it has successfully closed.
+// If `Process` is already stopped then this noops
 func (proc *Process) Stop() {
+
+	if !proc.running {
+		return
+	}
+
 	proc.close <- struct{}{}
 	<-proc.done
 }

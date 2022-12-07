@@ -179,6 +179,15 @@ func TestMultipleWatchersForSameFile(t *testing.T) {
 	}
 }
 
+func TestStartNoOp(t *testing.T) {
+	file := NewFile(logrus.New())
+
+	//Actually start it on it's own goroutine
+	go file.Run(1)
+
+	_ = file.Run(1)
+}
+
 func TestMatches(t *testing.T) {
 	type testCase struct {
 		Event   filewatcher.Event

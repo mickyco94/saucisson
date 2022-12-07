@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"os"
 	"os/signal"
 	"sync"
@@ -23,8 +22,8 @@ type App struct {
 }
 
 func New() *App {
-	formatter := &logrus.TextFormatter{
-		FullTimestamp: true,
+	formatter := &logrus.JSONFormatter{
+		PrettyPrint: true,
 	}
 
 	logger := logrus.New()
@@ -219,11 +218,13 @@ func (app *App) construct(spec config.ServiceSpec) *definition {
 
 	switch spec.Execute.Type {
 	case "shell":
-		//TODO: The context here should come from the executor pool
-		//Probably not a func of the object. But of the `Execute()` method.
-		shell := executor.NewShell(context.TODO(), app.logger)
+		shell := executor.NewShell(app.logger)
 		spec.Execute.Config.Decode(shell)
 		svc.executor = shell
+	case "http":
+		http := executor.NewHttp(app.logger)
+		spec.Execute.Config.Decode(http)
+		svc.executor = http
 	}
 
 	return svc

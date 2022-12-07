@@ -1,0 +1,18 @@
+services:
+  - name: cron
+    condition:
+      type: cron
+      config:
+        schedule: "*/10 * * * * *"
+    execute:
+      type: http
+      config:
+        log: true
+        method: POST
+        body: |
+          {
+            "foo": "bar"
+          }
+        headers:
+          Content-Type: "application/json"
+        url: "https://httpbin.org/post"

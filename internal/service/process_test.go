@@ -27,23 +27,20 @@ func (m mockProcess) Pid() int {
 	return 2
 }
 
-func setRunning(process string, isRunning bool) {
+func (p *Process) setRunning(process string, isRunning bool) {
 
 	if isRunning {
-		Processes = func() ([]ps.Process, error) {
+		p.source = func() ([]ps.Process, error) {
 			return []ps.Process{mockProcess{executable: "top"}}, nil
 		}
 	} else {
-		Processes = func() ([]ps.Process, error) {
+		p.source = func() ([]ps.Process, error) {
 			return []ps.Process{}, nil
 		}
 	}
 }
 
 func TestListenForOpen(t *testing.T) {
-	Processes = func() ([]ps.Process, error) {
-		return []ps.Process{}, nil
-	}
 
 	called := make(chan struct{})
 
@@ -60,7 +57,7 @@ func TestListenForOpen(t *testing.T) {
 
 	<-time.After(1 * time.Second)
 
-	setRunning("top", true)
+	proc.setRunning("top", true)
 
 	select {
 	case <-time.After(1 * time.Second):
@@ -85,13 +82,13 @@ func TestCloseWhenAlreadyRunning(t *testing.T) {
 		called <- struct{}{}
 	})
 
-	setRunning("top", true)
+	proc.setRunning("top", true)
 
 	go proc.Run()
 
 	<-time.After(500 * time.Millisecond)
 
-	setRunning("top", false)
+	proc.setRunning("top", false)
 
 	select {
 	case <-time.After(1 * time.Second):
@@ -116,7 +113,7 @@ func TestOpenWhenAlreadyOpen(t *testing.T) {
 		called <- struct{}{}
 	})
 
-	setRunning("top", true)
+	proc.setRunning("top", true)
 
 	go proc.Run()
 
@@ -127,9 +124,6 @@ func TestOpenWhenAlreadyOpen(t *testing.T) {
 	assert.Len(t, called, 0)
 }
 
-// TODO: Randomly fails, probably because of the "mocking"
-// Splitting the polling and consuming over channels might work...
-// Running proccesses chan...? that is the hashset?
 func TestOpenAndClose(t *testing.T) {
 	opened := make(chan struct{})
 	closed := make(chan struct{})
@@ -154,7 +148,7 @@ func TestOpenAndClose(t *testing.T) {
 
 	<-time.After(500 * time.Millisecond)
 
-	setRunning("top", true)
+	proc.setRunning("top", true)
 
 	select {
 	case <-opened:
@@ -163,7 +157,7 @@ func TestOpenAndClose(t *testing.T) {
 		panic("Timeout")
 	}
 
-	setRunning("top", false)
+	proc.setRunning("top", false)
 
 	select {
 	case <-closed:
@@ -172,5 +166,12 @@ func TestOpenAndClose(t *testing.T) {
 		panic("Timeout")
 	}
 
+	proc.Stop()
+}
+
+func TestStartStopDifferentGoRoutines(t *testing.T) {
+	proc := NewProcess(logrus.New())
+	go proc.Run()
+	time.Sleep(2 * time.Millisecond)
 	proc.Stop()
 }

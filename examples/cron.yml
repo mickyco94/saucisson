@@ -8,4 +8,4 @@ services:
       type: shell
       config:
         shell: bash
-        command: echo schedule triggered
+        command: sleep 15; echo done
