@@ -75,7 +75,10 @@ func Run(templatePath string) error {
 				panic(err)
 			}
 		} else if svc.cron != nil {
-			app.cron.HandleFunc(svc.cron, queueJob)
+			err := app.cron.HandleFunc(svc.cron, queueJob)
+			if err != nil {
+				panic(err)
+			}
 		} else if svc.process != nil {
 			app.process.HandleFunc(svc.process, queueJob)
 		} else {

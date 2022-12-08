@@ -20,8 +20,9 @@ func NewCron() *Cron {
 	}
 }
 
-func (cron *Cron) HandleFunc(condition *config.Cron, observer func()) {
-	cron.inner.AddFunc(condition.Schedule, observer)
+func (cron *Cron) HandleFunc(condition *config.Cron, observer func()) error {
+	_, err := cron.inner.AddFunc(condition.Schedule, observer)
+	return err
 }
 
 func (cron *Cron) Run() { cron.inner.Run() }
