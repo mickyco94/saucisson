@@ -88,6 +88,10 @@ func (f *File) HandleFunc(fileCondition *config.File, observer func()) error {
 
 	file, err := os.Stat(fileCondition.Path)
 
+	if err != nil {
+		return err
+	}
+
 	if file != nil &&
 		!file.IsDir() &&
 		operationMap[fileCondition.Operation] == filewatcher.Create {

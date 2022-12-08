@@ -80,9 +80,9 @@ func (p *Process) processes() ([]ps.Process, error) {
 	backoff := 1
 
 	for {
-		proccess, err := p.source()
+		procs, err := p.source()
 		if err == nil {
-			return proccess, nil
+			return procs, nil
 		}
 
 		if backoff > 32 {
@@ -101,17 +101,7 @@ func (p *Process) processes() ([]ps.Process, error) {
 
 var pollingInterval = 100 * time.Millisecond
 
-func (p *Process) Run() error {
-	p.runningMu.Lock()
-	if p.running {
-		p.runningMu.Unlock()
-		return nil
-	}
-
-	p.running = true
-	p.runningMu.Unlock()
-
-	//Set initial state
+func (p *Process) setInitialState() error {
 	processes, err := p.processes()
 
 	if err != nil {
@@ -134,6 +124,29 @@ func (p *Process) Run() error {
 		p.entries[i].isRunning = isRunning
 	}
 
+	return nil
+}
+
+func (p *Process) Run() error {
+	p.runningMu.Lock()
+	if p.running {
+		p.runningMu.Unlock()
+		return nil
+	}
+
+	p.running = true
+	p.runningMu.Unlock()
+
+	err := p.setInitialState()
+
+	if err != nil {
+		return err
+	}
+
+	return p.run()
+}
+
+func (p *Process) run() error {
 	for {
 		select {
 		case <-p.close:
