@@ -15,8 +15,7 @@ import (
 )
 
 var (
-	ErrFileWatcherAlreadyClosed = errors.New("Already stopped")
-	ErrWatchCreateExistingFile  = errors.New("Cannot watch for creation of a file that already exists")
+	ErrWatchCreateExistingFile = errors.New("Cannot watch for creation of a file that already exists")
 )
 var operationMap = map[config.Operation]filewatcher.Op{
 	config.Create: filewatcher.Create,
@@ -69,7 +68,7 @@ func (file *File) Stop(ctx context.Context) error {
 	defer file.runningMu.Unlock()
 
 	if !file.isRunning {
-		return ErrFileWatcherAlreadyClosed
+		return nil
 	}
 
 	file.close <- struct{}{}

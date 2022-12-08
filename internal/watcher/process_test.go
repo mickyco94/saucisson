@@ -176,3 +176,21 @@ func TestStartStopDifferentGoRoutines(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	proc.Stop(context.Background())
 }
+
+func TestNoEntries(t *testing.T) {
+	proc := NewProcess(logrus.New())
+
+	called := make(chan struct{})
+	proc.source = func() ([]ps.Process, error) {
+		called <- struct{}{}
+		return nil, nil
+	}
+
+	go proc.Run()
+
+	select {
+	case <-called:
+		t.Fail()
+	case <-time.After(500 * time.Millisecond):
+	}
+}

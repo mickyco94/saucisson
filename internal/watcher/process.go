@@ -102,6 +102,11 @@ func (p *Process) processes() ([]ps.Process, error) {
 var pollingInterval = 100 * time.Millisecond
 
 func (p *Process) setInitialState() error {
+	if len(p.entries) == 0 {
+		//No state to set
+		return nil
+	}
+
 	processes, err := p.processes()
 
 	if err != nil {

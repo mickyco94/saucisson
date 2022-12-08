@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"path"
@@ -177,6 +178,12 @@ func TestMultipleWatchersForSameFile(t *testing.T) {
 		t.Error("timeout")
 	case <-two:
 	}
+}
+
+func TestStopNotRunning(t *testing.T) {
+	file := NewFile(logrus.New())
+
+	file.Stop(context.Background())
 }
 
 func TestMatches(t *testing.T) {

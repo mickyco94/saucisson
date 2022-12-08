@@ -1,4 +1,4 @@
-package app
+package runner
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type App struct {
+type Runner struct {
 	logger logrus.FieldLogger
 
 	cron    *watcher.Cron
@@ -22,7 +22,7 @@ type App struct {
 	pool    *executor.Pool
 }
 
-func new() *App {
+func new() *Runner {
 	formatter := &logrus.JSONFormatter{
 		PrettyPrint: true,
 	}
@@ -32,7 +32,7 @@ func new() *App {
 	logger.SetFormatter(formatter)
 	logger.SetLevel(logrus.DebugLevel)
 
-	return &App{
+	return &Runner{
 		logger:  logger,
 		pool:    executor.NewExecutorPool(logger),
 		cron:    watcher.NewCron(),
@@ -45,7 +45,7 @@ func Run(templatePath string) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 
-	app := new()
+	runner := new()
 
 	file, err := os.Open(templatePath)
 	if err != nil {
@@ -61,28 +61,28 @@ func Run(templatePath string) error {
 	}
 
 	for _, s := range cfg.Services {
-		svc := app.construct(s)
+		svc := runner.construct(s)
 		queueJob := func() {
-			app.pool.Enqueue(executor.Job{
+			runner.pool.Enqueue(executor.Job{
 				Service:  s.Name,
 				Executor: svc.executor,
 			})
 		}
 		if svc.file != nil {
-			err := app.file.HandleFunc(svc.file, queueJob)
+			err := runner.file.HandleFunc(svc.file, queueJob)
 
 			if err != nil {
 				panic(err)
 			}
 		} else if svc.cron != nil {
-			err := app.cron.HandleFunc(svc.cron, queueJob)
+			err := runner.cron.HandleFunc(svc.cron, queueJob)
 			if err != nil {
 				panic(err)
 			}
 		} else if svc.process != nil {
-			app.process.HandleFunc(svc.process, queueJob)
+			runner.process.HandleFunc(svc.process, queueJob)
 		} else {
-			app.logger.WithField("svc", s.Name).Panic("Has no condition specified")
+			runner.logger.WithField("svc", s.Name).Panic("Has no condition specified")
 			return nil
 		}
 	}
@@ -90,35 +90,32 @@ func Run(templatePath string) error {
 	fileProccessorClosedChan := make(chan struct{})
 
 	go func() {
-		err := app.file.Run(time.Millisecond * 100)
+		err := runner.file.Run(time.Millisecond * 100)
 		if err != nil {
-			app.logger.
-				WithError(err).
-				Error("File proccessor shutdown unexpectedly")
 			close(fileProccessorClosedChan)
 		}
 	}()
 
-	go app.cron.Run()
-	app.pool.Run()
+	go runner.cron.Run()
+	runner.pool.Run()
 
 	processRunnerClosedChan := make(chan struct{})
 	go func() {
-		err := app.process.Run()
+		err := runner.process.Run()
 		if err != nil {
 			close(processRunnerClosedChan)
 		}
 	}()
 
-	defer app.shutdown()
+	defer runner.shutdown()
 
 	select {
 	case <-fileProccessorClosedChan:
-		app.logger.Error("File service failed unexpectedly, shutting down")
+		runner.logger.Error("File service failed unexpectedly, shutting down")
 	case <-sig:
-		app.logger.Debug("Received SIGINT, shutting down")
+		runner.logger.Debug("Received SIGINT, shutting down")
 	case <-processRunnerClosedChan:
-		app.logger.Error("Process service failed unexpectedly, shutting down")
+		runner.logger.Error("Process service failed unexpectedly, shutting down")
 	}
 
 	return nil
@@ -126,7 +123,7 @@ func Run(templatePath string) error {
 
 var shutdownDelay = time.Second * 5
 
-func (app *App) shutdown() {
+func (runner *Runner) shutdown() {
 	wg := &sync.WaitGroup{}
 	shutdownCtx, done := context.WithTimeout(context.Background(), shutdownDelay)
 	defer done()
@@ -135,9 +132,9 @@ func (app *App) shutdown() {
 	go func() {
 		defer wg.Done()
 
-		err := app.file.Stop(shutdownCtx)
-		if err != nil && err != watcher.ErrFileWatcherAlreadyClosed {
-			app.logger.WithError(err).Error("File failed to shutdown")
+		err := runner.file.Stop(shutdownCtx)
+		if err != nil {
+			runner.logger.WithError(err).Error("File watcher failed to shutdown")
 		}
 	}()
 
@@ -145,9 +142,9 @@ func (app *App) shutdown() {
 	go func() {
 		defer wg.Done()
 
-		err := app.cron.Stop(shutdownCtx)
+		err := runner.cron.Stop(shutdownCtx)
 		if err != nil {
-			app.logger.WithError(err).Error("Cron failed to shutdown")
+			runner.logger.WithError(err).Error("Cron failed to shutdown")
 		}
 	}()
 
@@ -155,9 +152,9 @@ func (app *App) shutdown() {
 	go func() {
 		defer wg.Done()
 
-		err := app.process.Stop(shutdownCtx)
+		err := runner.process.Stop(shutdownCtx)
 		if err != nil {
-			app.logger.WithError(err).Error("Process watcher failed to shutdown")
+			runner.logger.WithError(err).Error("Process watcher failed to shutdown")
 		}
 	}()
 
@@ -165,9 +162,9 @@ func (app *App) shutdown() {
 	go func() {
 		defer wg.Done()
 
-		err := app.pool.Stop(shutdownCtx)
+		err := runner.pool.Stop(shutdownCtx)
 		if err != nil {
-			app.logger.WithError(err).Error("Executors failed to shutdown")
+			runner.logger.WithError(err).Error("Executors failed to shutdown")
 		}
 	}()
 
@@ -187,34 +184,34 @@ type definition struct {
 
 // construct constructs an actual implementation of a Service from
 // a specification
-func (app *App) construct(spec config.ServiceSpec) *definition {
-	svc := &definition{}
+func (runner *Runner) construct(spec config.ServiceSpec) *definition {
+	def := &definition{}
 
 	switch spec.Condition.Type {
 	case config.CronKey:
 		cronConf := &config.Cron{}
 		spec.Condition.Config.Decode(cronConf)
-		svc.cron = cronConf
+		def.cron = cronConf
 	case config.FileKey:
 		fileConf := &config.File{}
 		spec.Condition.Config.Decode(fileConf)
-		svc.file = fileConf
+		def.file = fileConf
 	case config.Processkey:
 		processConf := &config.Process{}
 		spec.Condition.Config.Decode(processConf)
-		svc.process = processConf
+		def.process = processConf
 	}
 
 	switch spec.Execute.Type {
 	case "shell":
-		shell := executor.NewShell(app.logger)
+		shell := executor.NewShell(runner.logger)
 		spec.Execute.Config.Decode(shell)
-		svc.executor = shell
+		def.executor = shell
 	case "http":
-		http := executor.NewHttp(app.logger)
+		http := executor.NewHttp(runner.logger)
 		spec.Execute.Config.Decode(http)
-		svc.executor = http
+		def.executor = http
 	}
 
-	return svc
+	return def
 }

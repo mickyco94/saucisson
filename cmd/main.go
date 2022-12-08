@@ -5,7 +5,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/mickyco94/saucisson/internal/app"
+	"github.com/mickyco94/saucisson/internal/runner"
 	"github.com/urfave/cli/v2"
 )
 
@@ -32,7 +32,7 @@ func main() {
 						configPath = path.Join(homedir, ".saucisson.yml")
 					}
 
-					err := app.Run(configPath)
+					err := runner.Run(configPath)
 					if err != nil {
 						log.Printf(err.Error())
 						return err
