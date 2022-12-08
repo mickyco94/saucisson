@@ -1,5 +1,7 @@
 # Saucisson
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/mickyco94/saucisson)](https://goreportcard.com/report/github.com/mickyco94/saucisson)
+
 Saucisson is a declarative task runner that defines pairs of conditions and executions to be run in case of those conditions occurring.
 
 ```yaml
