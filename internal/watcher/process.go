@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -182,12 +183,17 @@ func (p *Process) Run() error {
 // this method also waits for the main goroutine to signal that
 // it has successfully closed.
 // If `Process` is already stopped then this noops
-func (proc *Process) Stop() {
+func (proc *Process) Stop(ctx context.Context) error {
 
 	if !proc.running {
-		return
+		return nil
 	}
 
 	proc.close <- struct{}{}
-	<-proc.done
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-proc.done:
+		return nil
+	}
 }

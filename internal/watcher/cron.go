@@ -28,6 +28,7 @@ func (cron *Cron) Run() { cron.inner.Run() }
 
 func (cron *Cron) Stop(ctx context.Context) error {
 	runningJobsCtx := cron.inner.Stop()
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

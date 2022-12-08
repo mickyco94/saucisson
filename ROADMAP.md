@@ -7,3 +7,4 @@
 [] - Interpret `~` as `$HOME` globally
 [] - Improve UT coverage
 [] - Go Report Card
+[] - Improve API comments/docs

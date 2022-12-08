@@ -152,12 +152,10 @@ func (app *App) shutdown() {
 	go func() {
 		defer wg.Done()
 
-		timer := time.AfterFunc(shutdownDelay, func() {
-			app.logger.Error("Failed to stop process watcher on shutdown")
-			os.Exit(1)
-		})
-		app.process.Stop()
-		timer.Stop()
+		err := app.process.Stop(shutdownCtx)
+		if err != nil {
+			app.logger.WithError(err).Error("Process watcher failed to shutdown")
+		}
 	}()
 
 	wg.Add(1)

@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ func TestListenForOpen(t *testing.T) {
 		t.Log("Passed")
 	}
 
-	proc.Stop()
+	proc.Stop(context.Background())
 }
 
 func TestCloseWhenAlreadyRunning(t *testing.T) {
@@ -97,7 +98,7 @@ func TestCloseWhenAlreadyRunning(t *testing.T) {
 		t.Log("Passed")
 	}
 
-	proc.Stop()
+	proc.Stop(context.Background())
 }
 
 func TestOpenWhenAlreadyOpen(t *testing.T) {
@@ -119,7 +120,7 @@ func TestOpenWhenAlreadyOpen(t *testing.T) {
 
 	<-time.After(500 * time.Millisecond)
 
-	proc.Stop()
+	proc.Stop(context.Background())
 
 	assert.Len(t, called, 0)
 }
@@ -166,12 +167,12 @@ func TestOpenAndClose(t *testing.T) {
 		panic("Timeout")
 	}
 
-	proc.Stop()
+	proc.Stop(context.Background())
 }
 
 func TestStartStopDifferentGoRoutines(t *testing.T) {
 	proc := NewProcess(logrus.New())
 	go proc.Run()
 	time.Sleep(2 * time.Millisecond)
-	proc.Stop()
+	proc.Stop(context.Background())
 }

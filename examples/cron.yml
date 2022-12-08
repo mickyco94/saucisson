@@ -7,5 +7,4 @@ services:
     execute:
       type: shell
       config:
-        shell: bash
-        command: sleep 15; echo done
+        command: echo done

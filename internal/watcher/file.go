@@ -140,7 +140,6 @@ func (file *File) Run(pollingInterval time.Duration) error {
 
 	go func() {
 		defer func() {
-			file.logger.Debug("Closing file watcher")
 			file.done <- struct{}{}
 		}()
 
