@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -39,17 +40,29 @@ func NewExecutorPool(logger logrus.FieldLogger) *Pool {
 	}
 }
 
-func (pool *Pool) Stop() {
+func (pool *Pool) Stop(ctx context.Context) error {
 	pool.runningMu.Lock()
 	defer pool.runningMu.Unlock()
 
 	if !pool.running {
-		return
+		return nil //TODO: Return an err
 	}
 
-	close(pool.jobs)
-	pool.wg.Wait()
 	pool.running = false
+	wgchan := make(chan bool)
+
+	go func() {
+		pool.wg.Wait()
+		wgchan <- true
+	}()
+
+	close(pool.jobs)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-wgchan:
+		return nil
+	}
 }
 
 func (pool *Pool) Run() {
@@ -69,6 +82,11 @@ func (pool *Pool) Run() {
 			}()
 
 			for job := range pool.jobs {
+				//TODO: Should Executor receive a context...?
+				//Pool should have a context/cancel function. If the pool
+				//stops then that cancel() should be triggered and all children
+				//will have a ctx.Done() propagated.
+				//Maybe Run() should just take a context...?
 				err := job.Executor.Execute()
 				if err != nil {
 					pool.logger.

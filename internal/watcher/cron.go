@@ -1,6 +1,8 @@
-package service
+package watcher
 
 import (
+	"context"
+
 	"github.com/mickyco94/saucisson/internal/config"
 	internal "github.com/robfig/cron/v3"
 )
@@ -24,4 +26,12 @@ func (cron *Cron) HandleFunc(condition *config.Cron, observer func()) {
 
 func (cron *Cron) Run() { cron.inner.Run() }
 
-func (cron *Cron) Stop() { cron.inner.Stop() }
+func (cron *Cron) Stop(ctx context.Context) error {
+	runningJobsCtx := cron.inner.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-runningJobsCtx.Done():
+		return nil
+	}
+}

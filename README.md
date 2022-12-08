@@ -1,6 +1,6 @@
 # Saucisson
 
-Saucisson is a declarative task runner that is triggered events. Both the conditions of triggering tasks and the tasks themselves are defined in configuration.
+Saucisson is a declarative task runner that defines pairs of conditions and executions to be run in case of those conditions occurring.
 
 ```yaml
 services:

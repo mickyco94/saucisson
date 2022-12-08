@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"sync"
@@ -8,16 +9,16 @@ import (
 
 	"github.com/mickyco94/saucisson/internal/config"
 	"github.com/mickyco94/saucisson/internal/executor"
-	"github.com/mickyco94/saucisson/internal/service"
+	"github.com/mickyco94/saucisson/internal/watcher"
 	"github.com/sirupsen/logrus"
 )
 
 type App struct {
 	logger logrus.FieldLogger
 
-	cron    *service.Cron
-	file    *service.File
-	process *service.Process
+	cron    *watcher.Cron
+	file    *watcher.File
+	process *watcher.Process
 	pool    *executor.Pool
 }
 
@@ -34,9 +35,9 @@ func New() *App {
 	return &App{
 		logger:  logger,
 		pool:    executor.NewExecutorPool(logger),
-		cron:    service.NewCron(),
-		process: service.NewProcess(logger),
-		file:    service.NewFile(logger),
+		cron:    watcher.NewCron(),
+		process: watcher.NewProcess(logger),
+		file:    watcher.NewFile(logger),
 	}
 }
 
@@ -67,25 +68,20 @@ func Run(templatePath string) error {
 				Executor: svc.executor,
 			})
 		}
-		for _, fileCond := range svc.files {
-			err := app.file.HandleFunc(fileCond, queueJob)
+		if svc.file != nil {
+			err := app.file.HandleFunc(svc.file, queueJob)
 
 			if err != nil {
 				panic(err)
 			}
+		} else if svc.cron != nil {
+			app.cron.HandleFunc(svc.cron, queueJob)
+		} else if svc.process != nil {
+			app.process.HandleFunc(svc.process, queueJob)
+		} else {
+			app.logger.WithField("svc", s.Name).Panic("Has no condition specified")
 		}
-		for _, cronCond := range svc.crons {
-			app.cron.HandleFunc(cronCond, queueJob)
-			if err != nil {
-				panic(err)
-			}
-		}
-		for _, processCond := range svc.processes {
-			app.process.HandleFunc(processCond, queueJob)
-			if err != nil {
-				panic(err)
-			}
-		}
+
 	}
 
 	fileProccessorClosedChan := make(chan struct{})
@@ -129,34 +125,32 @@ var shutdownDelay = time.Second * 5
 
 func (app *App) shutdown() {
 	wg := &sync.WaitGroup{}
+	shutdownCtx, done := context.WithTimeout(context.Background(), shutdownDelay)
+	defer done()
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		wg.Add(1)
 
-		timer := time.AfterFunc(shutdownDelay, func() {
-			app.logger.Error("Failed to stop file watcher on shutdown")
-			os.Exit(1)
-		})
-		app.file.Stop()
-		timer.Stop()
+		err := app.file.Stop(shutdownCtx)
+		if err != nil && err != watcher.ErrFileWatcherAlreadyClosed {
+			app.logger.WithError(err).Error("File failed to shutdown")
+		}
 	}()
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		wg.Add(1)
 
-		timer := time.AfterFunc(shutdownDelay, func() {
-			app.logger.Error("Failed to stop cron scheduler on shutdown")
-			os.Exit(1)
-		})
-		app.cron.Stop()
-		timer.Stop()
+		err := app.cron.Stop(shutdownCtx)
+		if err != nil {
+			app.logger.WithError(err).Error("Cron failed to shutdown")
+		}
 	}()
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		wg.Add(1)
 
 		timer := time.AfterFunc(shutdownDelay, func() {
 			app.logger.Error("Failed to stop process watcher on shutdown")
@@ -166,16 +160,14 @@ func (app *App) shutdown() {
 		timer.Stop()
 	}()
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		wg.Add(1)
 
-		timer := time.AfterFunc(shutdownDelay, func() {
-			app.logger.Error("Failed to terminate executing processes on shutdown")
-			os.Exit(1)
-		})
-		app.pool.Stop()
-		timer.Stop()
+		err := app.pool.Stop(shutdownCtx)
+		if err != nil {
+			app.logger.WithError(err).Error("Executors failed to shutdown")
+		}
 	}()
 
 	wg.Wait()
@@ -185,9 +177,9 @@ func (app *App) shutdown() {
 // That all need to be registered
 // For all of those conditions, each executor needs to be registered
 type definition struct {
-	crons     []*config.Cron
-	files     []*config.File
-	processes []*config.Process
+	cron    *config.Cron
+	file    *config.File
+	process *config.Process
 
 	executor executor.Executor
 }
@@ -195,25 +187,21 @@ type definition struct {
 // construct constructs an actual implementation of a Service from
 // a specification
 func (app *App) construct(spec config.ServiceSpec) *definition {
-	svc := &definition{
-		crons:    make([]*config.Cron, 0),
-		files:    make([]*config.File, 0),
-		executor: nil,
-	}
+	svc := &definition{}
 
 	switch spec.Condition.Type {
 	case config.CronKey:
 		cronConf := &config.Cron{}
 		spec.Condition.Config.Decode(cronConf)
-		svc.crons = append(svc.crons, cronConf)
+		svc.cron = cronConf
 	case config.FileKey:
 		fileConf := &config.File{}
 		spec.Condition.Config.Decode(fileConf)
-		svc.files = append(svc.files, fileConf)
+		svc.file = fileConf
 	case config.Processkey:
 		processConf := &config.Process{}
 		spec.Condition.Config.Decode(processConf)
-		svc.processes = append(svc.processes, processConf)
+		svc.process = processConf
 	}
 
 	switch spec.Execute.Type {

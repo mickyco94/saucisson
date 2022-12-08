@@ -1,6 +1,7 @@
-package service
+package watcher
 
 import (
+	"context"
 	"errors"
 	"log"
 	"os"
@@ -13,8 +14,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var ErrWatchCreateExistingFile = errors.New("Cannot watch for creation of a file that already exists")
-
+var (
+	ErrFileWatcherAlreadyClosed = errors.New("Already stopped")
+	ErrWatchCreateExistingFile  = errors.New("Cannot watch for creation of a file that already exists")
+)
 var operationMap = map[config.Operation]filewatcher.Op{
 	config.Create: filewatcher.Create,
 	config.Remove: filewatcher.Remove,
@@ -30,8 +33,11 @@ func NewFile(logger logrus.FieldLogger) *File {
 	return &File{
 		runningMu: sync.Mutex{},
 		isRunning: false,
-		logger:    logger,
-		watcher:   watcher,
+		close:     make(chan struct{}),
+		done:      make(chan struct{}),
+
+		logger:  logger,
+		watcher: watcher,
 	}
 }
 
@@ -58,17 +64,21 @@ type File struct {
 	watcher *filewatcher.Watcher
 }
 
-func (file *File) Stop() {
+func (file *File) Stop(ctx context.Context) error {
 	file.runningMu.Lock()
 	defer file.runningMu.Unlock()
 
 	if !file.isRunning {
-		return
+		return ErrFileWatcherAlreadyClosed
 	}
 
-	file.watcher.Close()
 	file.close <- struct{}{}
-	<-file.done
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-file.done:
+		return nil
+	}
 }
 
 // HandleFunc registers the provided function to be executed, when the provided
@@ -130,7 +140,7 @@ func (file *File) Run(pollingInterval time.Duration) error {
 
 	go func() {
 		defer func() {
-			file.logger.Debug("Shutting down file service")
+			file.logger.Debug("Closing file watcher")
 			file.done <- struct{}{}
 		}()
 
@@ -138,8 +148,8 @@ func (file *File) Run(pollingInterval time.Duration) error {
 			select {
 			case <-file.close:
 				return
-			case event, ok := <-file.watcher.Event:
-				if !ok {
+			case event, open := <-file.watcher.Event:
+				if !open {
 					return
 				}
 
@@ -149,10 +159,7 @@ func (file *File) Run(pollingInterval time.Duration) error {
 					}
 				}
 
-			case err, ok := <-file.watcher.Error:
-				if !ok {
-					return
-				}
+			case err := <-file.watcher.Error:
 				log.Printf("error: %v\n", err)
 			}
 		}
