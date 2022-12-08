@@ -1,6 +1,9 @@
 package executor
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // An executor is an abstractions that represents
 // some parameterless invocation. Executors are run
@@ -10,7 +13,9 @@ type Executor interface {
 
 	// Execute will run the wrapped function
 	// All errors are logged to the Service diagnostics
-	Execute() error
+	//
+	// Context is used for cancellation of the running Executors
+	Execute(context.Context) error
 }
 
 // ErrTimeoutExceeded is an err that indicates the configured timeout for the execution

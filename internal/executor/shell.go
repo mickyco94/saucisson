@@ -32,19 +32,19 @@ func (shell *Shell) getShell() string {
 		return shell.Shell
 	}
 
-	val, exists := os.LookupEnv("SHELL")
+	s, exists := os.LookupEnv("SHELL")
 	if !exists {
 		return "bash" //? Make the aggressive assumption that they have bash
 	}
-	return val
+	return s
 }
 
 func escape(input string) string {
 	return strings.Replace(input, "\"", "", -1)
 }
 
-func (shell *Shell) Execute() error {
-	ctx, done := context.WithTimeout(context.Background(), time.Second*time.Duration(shell.Timeout))
+func (shell *Shell) Execute(ctx context.Context) error {
+	ctx, done := context.WithTimeout(ctx, time.Second*time.Duration(shell.Timeout))
 	defer done()
 
 	sh := shell.getShell()
@@ -53,7 +53,7 @@ func (shell *Shell) Execute() error {
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-			shell.logger.Debug("Timeout exceeded !!!")
+			return ErrTimeoutExceeded
 		}
 		return err
 	}
@@ -65,5 +65,4 @@ func (shell *Shell) Execute() error {
 		Info("Completed")
 
 	return nil
-
 }

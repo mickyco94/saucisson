@@ -135,7 +135,7 @@ func (file *File) Run(pollingInterval time.Duration) error {
 
 	if file.isRunning {
 		file.runningMu.Unlock()
-		return errors.New("Already running")
+		return nil
 	}
 
 	go func() {

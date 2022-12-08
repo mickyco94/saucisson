@@ -12,7 +12,7 @@ import (
 
 type State uint32
 
-// Ops
+// Op
 const (
 	Open State = iota
 	Close
@@ -43,7 +43,7 @@ type processEntry struct {
 
 func NewProcess(logger logrus.FieldLogger) *Process {
 	return &Process{
-		source:    ps.Processes,
+		source:    ps.Processes, //Setting this here supports mocking
 		logger:    logger,
 		runningMu: sync.Mutex{},
 		done:      make(chan struct{}),
@@ -75,8 +75,6 @@ func (p *Process) HandleFunc(config *config.Process, f func()) {
 func (entry processEntry) startJob() {
 	go entry.h()
 }
-
-// Setting Processes as a func here allows it to be mocked for testing.
 
 func (p *Process) processes() ([]ps.Process, error) {
 	backoff := 1

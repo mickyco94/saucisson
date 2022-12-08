@@ -80,8 +80,8 @@ func Run(templatePath string) error {
 			app.process.HandleFunc(svc.process, queueJob)
 		} else {
 			app.logger.WithField("svc", s.Name).Panic("Has no condition specified")
+			return nil
 		}
-
 	}
 
 	fileProccessorClosedChan := make(chan struct{})

@@ -17,6 +17,11 @@ type Job struct {
 // Pool represents a collection of workers that can be used
 // by `executor.Execute` to dispatch work
 type Pool struct {
+	//ctx can be cancelled when `Stop()` is called.
+	//This propagates to all running Executors which we wait to finish
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	runningMu sync.Mutex
 	running   bool
 	size      int
@@ -30,7 +35,12 @@ type Pool struct {
 var DefaultPoolSize = 15
 
 func NewExecutorPool(logger logrus.FieldLogger) *Pool {
+	localCtx, cancel := context.WithCancel(context.Background())
+
 	return &Pool{
+		ctx:    localCtx,
+		cancel: cancel,
+
 		size:      DefaultPoolSize,
 		wg:        sync.WaitGroup{},
 		running:   false,
@@ -45,7 +55,7 @@ func (pool *Pool) Stop(ctx context.Context) error {
 	defer pool.runningMu.Unlock()
 
 	if !pool.running {
-		return nil //TODO: Return an err
+		return nil
 	}
 
 	pool.running = false
@@ -56,7 +66,11 @@ func (pool *Pool) Stop(ctx context.Context) error {
 		wgchan <- true
 	}()
 
+	//Stop sending new jobs
 	close(pool.jobs)
+	//Cancel all running jobs
+	pool.cancel()
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -82,12 +96,7 @@ func (pool *Pool) Run() {
 			}()
 
 			for job := range pool.jobs {
-				//TODO: Should Executor receive a context...?
-				//Pool should have a context/cancel function. If the pool
-				//stops then that cancel() should be triggered and all children
-				//will have a ctx.Done() propagated.
-				//Maybe Run() should just take a context...?
-				err := job.Executor.Execute()
+				err := job.Executor.Execute(pool.ctx)
 				if err != nil {
 					pool.logger.
 						WithError(err).

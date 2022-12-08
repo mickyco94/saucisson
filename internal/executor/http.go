@@ -33,8 +33,8 @@ func NewHttp(logger logrus.FieldLogger) *Http {
 	}
 }
 
-func (http *Http) Execute() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(http.Timeout)*time.Second)
+func (http *Http) Execute(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(http.Timeout)*time.Second)
 	defer cancel()
 
 	buffer := bytes.NewBufferString(http.Body)
