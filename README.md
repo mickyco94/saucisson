@@ -54,3 +54,7 @@ Run with default config (~/.saucisson.yml)
 ```sh
 saucisson run
 ```
+
+---
+
+See [Roadmap](./ROADMAP.md) for future features/improvements.

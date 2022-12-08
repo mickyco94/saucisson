@@ -22,7 +22,7 @@ type App struct {
 	pool    *executor.Pool
 }
 
-func New() *App {
+func new() *App {
 	formatter := &logrus.JSONFormatter{
 		PrettyPrint: true,
 	}
@@ -45,7 +45,7 @@ func Run(templatePath string) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 
-	app := New()
+	app := new()
 
 	file, err := os.Open(templatePath)
 	if err != nil {
