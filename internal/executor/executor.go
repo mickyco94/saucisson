@@ -7,16 +7,18 @@ import (
 
 // An executor is an abstractions that represents
 // some parameterless invocation. Executors are run
-// when a `Condition` is satisfied.
-
+// when a Condition is satisfied.
 type Executor interface {
 
-	// Execute will run the wrapped function
+	// Execute will run the wrapped function.
 	// All errors are logged to the Service diagnostics
 	//
 	// Context is used for cancellation of the running Executors
 	Execute(context.Context) error
 }
+
+// ExecutorFunc defines the method signature that all Executors must follow
+type ExecutorFunc func(context.Context) error
 
 // ErrTimeoutExceeded is an err that indicates the configured timeout for the execution
 // has been exceeded.

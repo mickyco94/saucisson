@@ -8,3 +8,4 @@
 - [ ] Improve UT coverage
 - [ ] Go Report Card
 - [ ] Improve API comments/docs
+- [ ] Panic recovery in executors...? Decorate all executors

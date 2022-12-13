@@ -83,9 +83,9 @@ func (file *File) Stop(ctx context.Context) error {
 // HandleFunc registers the provided function to be executed, when the provided
 // condition has been satisfied.
 // An error is returned if the provided condition is not logically complete
-func (f *File) HandleFunc(fileCondition *config.File, observer func()) error {
+func (f *File) HandleFunc(condition *config.File, handler func()) error {
 
-	file, err := os.Stat(fileCondition.Path)
+	file, err := os.Stat(condition.Path)
 
 	if err != nil {
 		return err
@@ -93,21 +93,21 @@ func (f *File) HandleFunc(fileCondition *config.File, observer func()) error {
 
 	if file != nil &&
 		!file.IsDir() &&
-		operationMap[fileCondition.Operation] == filewatcher.Create {
+		operationMap[condition.Operation] == filewatcher.Create {
 		return ErrWatchCreateExistingFile
 	}
 
-	err = f.watcher.Add(fileCondition.Path)
+	err = f.watcher.Add(condition.Path)
 
 	if err != nil {
 		return err
 	}
 
 	f.entries = append(f.entries, fileEntry{
-		path:    fileCondition.Path,
+		path:    condition.Path,
 		dir:     file.IsDir(),
-		op:      operationMap[fileCondition.Operation],
-		handler: observer,
+		op:      operationMap[condition.Operation],
+		handler: handler,
 	})
 
 	return nil

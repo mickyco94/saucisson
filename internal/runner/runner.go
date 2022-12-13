@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -13,6 +14,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Runner is a service layer struct that corresponds
+// to the saucisson run command.
+// This service is responsible for instantiating dependencies,
+// interpreting the provided configuration and coordinating those
+// dependencies.
 type Runner struct {
 	logger logrus.FieldLogger
 
@@ -22,7 +28,14 @@ type Runner struct {
 	pool    *executor.Pool
 }
 
-func new() *Runner {
+// Run constructs and invokes a runner using the provided templatePath
+// to retrieve the config that drives runner.
+// Run will block and execute until a SIGINT signal is received from the os
+// at which point Run will attempt to gracefully shutdown its dependencies.
+func Run(templatePath string) error {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+
 	formatter := &logrus.JSONFormatter{
 		PrettyPrint: true,
 	}
@@ -32,20 +45,13 @@ func new() *Runner {
 	logger.SetFormatter(formatter)
 	logger.SetLevel(logrus.DebugLevel)
 
-	return &Runner{
+	runner := &Runner{
 		logger:  logger,
-		pool:    executor.NewExecutorPool(logger),
+		pool:    executor.NewPool(logger, executor.DefaultPoolSize),
 		cron:    watcher.NewCron(),
 		process: watcher.NewProcess(logger),
 		file:    watcher.NewFile(logger),
 	}
-}
-
-func Run(templatePath string) error {
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
-
-	runner := new()
 
 	file, err := os.Open(templatePath)
 	if err != nil {
@@ -61,28 +67,32 @@ func Run(templatePath string) error {
 	}
 
 	for _, s := range cfg.Services {
-		svc := runner.construct(s)
+		def := runner.construct(s)
+		serviceName := s.Name
 		queueJob := func() {
 			runner.pool.Enqueue(executor.Job{
-				Service:  s.Name,
-				Executor: svc.executor,
+				Service:  serviceName,
+				Executor: def.executor.Execute,
 			})
 		}
-		if svc.file != nil {
-			err := runner.file.HandleFunc(svc.file, queueJob)
+		if def.file != nil {
+			err := runner.file.HandleFunc(def.file, queueJob)
 
 			if err != nil {
 				panic(err)
 			}
-		} else if svc.cron != nil {
-			err := runner.cron.HandleFunc(svc.cron, queueJob)
+		} else if def.cron != nil {
+			err := runner.cron.HandleFunc(def.cron, queueJob)
 			if err != nil {
 				panic(err)
 			}
-		} else if svc.process != nil {
-			runner.process.HandleFunc(svc.process, queueJob)
+		} else if def.process != nil {
+			runner.process.HandleFunc(def.process, queueJob)
 		} else {
-			runner.logger.WithField("svc", s.Name).Panic("Has no condition specified")
+			runner.logger.
+				WithField("svc", s.Name).
+				Panic("Has no condition specified")
+
 			return nil
 		}
 	}
@@ -97,7 +107,7 @@ func Run(templatePath string) error {
 	}()
 
 	go runner.cron.Run()
-	runner.pool.Run()
+	runner.pool.Start()
 
 	processRunnerClosedChan := make(chan struct{})
 	go func() {
@@ -121,8 +131,12 @@ func Run(templatePath string) error {
 	return nil
 }
 
+// shutdownDelay is the maximum time limit dependent services have to exit.
+// If this time limit is exceeded the application exits without properly
+// terminating those dependencies.
 var shutdownDelay = time.Second * 5
 
+// shutdown closes the Runner by attempting to gracefully close all dependent services
 func (runner *Runner) shutdown() {
 	wg := &sync.WaitGroup{}
 	shutdownCtx, done := context.WithTimeout(context.Background(), shutdownDelay)
@@ -208,7 +222,7 @@ func (runner *Runner) construct(spec config.ServiceSpec) *definition {
 		spec.Execute.Config.Decode(shell)
 		def.executor = shell
 	case "http":
-		http := executor.NewHttp(runner.logger)
+		http := executor.NewHttp(runner.logger, *http.DefaultClient) //TODO: This should be more specific..
 		spec.Execute.Config.Decode(http)
 		def.executor = http
 	}

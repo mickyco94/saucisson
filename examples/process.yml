@@ -8,6 +8,7 @@ services:
     execute:
       type: shell
       config:
+        log: true
         command: echo top opened
   - name: close top
     condition:
@@ -18,5 +19,5 @@ services:
     execute:
       type: shell
       config:
-        shell: bash
+        log: true
         command: echo top closed

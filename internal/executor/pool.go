@@ -7,41 +7,44 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Job represents a unit of work
+// Job represents a unit of work to be run by the executor pool
 // triggered by a Service definitions condition(s) being satisfied
+// Jobs can be run by adding them to the pool backlog via:
+//
+//	pool.Enqueue(job)
 type Job struct {
 	Service  string
-	Executor Executor
+	Executor ExecutorFunc
 }
 
 // Pool represents a collection of workers that can be used
 // by `executor.Execute` to dispatch work
 type Pool struct {
-	//ctx can be cancelled when `Stop()` is called.
-	//This propagates to all running Executors which we wait to finish
+	logger logrus.FieldLogger
 	ctx    context.Context
 	cancel context.CancelFunc
 
 	runningMu sync.Mutex
 	running   bool
-	size      int
 
-	wg     sync.WaitGroup
-	logger logrus.FieldLogger
-
+	size int
+	wg   sync.WaitGroup
 	jobs chan Job
 }
 
+// DefaultPoolSize represents the total number of goroutines
+// that this executor pool shares. In the future this may be configurable
+// and/or dependent on the number of services specified in configuration
 var DefaultPoolSize = 15
 
-func NewExecutorPool(logger logrus.FieldLogger) *Pool {
+// NewPool constructs a new executor pool
+func NewPool(logger logrus.FieldLogger, size int) *Pool {
 	localCtx, cancel := context.WithCancel(context.Background())
 
 	return &Pool{
-		ctx:    localCtx,
-		cancel: cancel,
-
-		size:      DefaultPoolSize,
+		ctx:       localCtx,
+		cancel:    cancel,
+		size:      size,
 		wg:        sync.WaitGroup{},
 		running:   false,
 		runningMu: sync.Mutex{},
@@ -50,20 +53,32 @@ func NewExecutorPool(logger logrus.FieldLogger) *Pool {
 	}
 }
 
+// Stop closes all running goroutines that are members of the
+// execution pool, each executor is also instructured to cancel
+// execution by an internal context.
+//
+// The context passed to the Stop method can be used to abort the shutdown of
+// the executor pool
+// e.g.
+//
+//	ctx, _ := context.WithTimeout(context.Background(), time.Second)
+//	err := pool.Stop(ctx)
 func (pool *Pool) Stop(ctx context.Context) error {
 	pool.runningMu.Lock()
-	defer pool.runningMu.Unlock()
 
 	if !pool.running {
+		pool.runningMu.Unlock()
 		return nil
 	}
 
 	pool.running = false
-	wgchan := make(chan bool)
+	pool.runningMu.Unlock()
+
+	runningContext, cancel := context.WithCancel(context.Background())
 
 	go func() {
 		pool.wg.Wait()
-		wgchan <- true
+		cancel()
 	}()
 
 	//Stop sending new jobs
@@ -74,18 +89,26 @@ func (pool *Pool) Stop(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-wgchan:
+	case <-runningContext.Done():
 		return nil
 	}
 }
 
-func (pool *Pool) Run() {
+// Start spawns N executors in the pool.
+// If the pool is already running then the operations is a no-op
+//
+// Closing of the pool is completed using:
+//
+//	pool.Stop(context.Context)
+func (pool *Pool) Start() {
 	pool.runningMu.Lock()
-	defer pool.runningMu.Unlock()
 	if pool.running {
+		pool.runningMu.Unlock()
 		return
 	}
+
 	pool.running = true
+	pool.runningMu.Unlock()
 
 	pool.wg.Add(pool.size)
 
@@ -96,12 +119,16 @@ func (pool *Pool) Run() {
 			}()
 
 			for job := range pool.jobs {
-				err := job.Executor.Execute(pool.ctx)
+				err := job.Executor(pool.ctx)
 				if err != nil {
 					pool.logger.
 						WithError(err).
 						WithField("svc", job.Service).
 						Error("Execution failed")
+				} else {
+					pool.logger.
+						WithField("svc", job.Service).
+						Info("Execution completed")
 				}
 			}
 		}()
