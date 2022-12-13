@@ -5,7 +5,7 @@
 - [ ] Linter
 - [ ] Server/Client Architecture over UNIX sock
 - [ ] Interpret `~` as `$HOME` globally
-- [ ] Improve UT coverage
-- [ ] Go Report Card
-- [ ] Improve API comments/docs
+- [x] Improve UT coverage
+- [x] Go Report Card
+- [x] Improve API comments/docs
 - [ ] Panic recovery in executors...? Decorate all executors
