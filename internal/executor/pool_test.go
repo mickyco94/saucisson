@@ -25,7 +25,8 @@ func TestStopCancelledContext(t *testing.T) {
 
 	pool.Start()
 
-	cancelledCtx, _ := context.WithTimeout(context.Background(), time.Millisecond)
+	cancelledCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
 
 	<-time.After(5 * time.Millisecond)
 	err := pool.Stop(cancelledCtx)
@@ -69,5 +70,22 @@ func TestExecutorCanError(t *testing.T) {
 		},
 	})
 
+	assert.True(t, pool.running)
+}
+
+func TestExecutorRecover(t *testing.T) {
+	pool := NewPool(logrus.New(), 1)
+
+	pool.Start()
+
+	pool.Enqueue(Job{
+		Service: "panic",
+		Executor: func(ctx context.Context) error {
+			panic("Panicking!")
+		},
+	})
+
+	//Superfluous assertion, we're just checking the panic is not propagated
+	//No way to assert that there are n go-routines still running
 	assert.True(t, pool.running)
 }

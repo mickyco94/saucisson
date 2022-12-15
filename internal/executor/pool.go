@@ -119,17 +119,7 @@ func (pool *Pool) Start() {
 			}()
 
 			for job := range pool.jobs {
-				err := job.Executor(pool.ctx)
-				if err != nil {
-					pool.logger.
-						WithError(err).
-						WithField("svc", job.Service).
-						Error("Execution failed")
-				} else {
-					pool.logger.
-						WithField("svc", job.Service).
-						Info("Execution completed")
-				}
+				pool.run(&job)
 			}
 		}()
 	}
@@ -138,4 +128,28 @@ func (pool *Pool) Start() {
 // Enqueue adds the execution to the queue
 func (pool *Pool) Enqueue(job Job) {
 	pool.jobs <- job
+}
+
+// run executes a job on the pool and manages all error handling
+func (pool *Pool) run(job *Job) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			pool.logger.
+				WithField("svc", job.Service).
+				WithField("panic", rec).
+				Error("Executor panicked")
+		}
+	}()
+
+	err := job.Executor(pool.ctx)
+	if err != nil {
+		pool.logger.
+			WithError(err).
+			WithField("svc", job.Service).
+			Error("Execution failed")
+	} else {
+		pool.logger.
+			WithField("svc", job.Service).
+			Info("Execution completed")
+	}
 }

@@ -8,4 +8,5 @@
 - [x] Improve UT coverage
 - [x] Go Report Card
 - [x] Improve API comments/docs
-- [ ] Panic recovery in executors...? Decorate all executors
+- [x] Panic recovery in executors...? Decorate all executors
+- [ ] Create framework for testing
